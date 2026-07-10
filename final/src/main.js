@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710009";
+const BUILD_VERSION = "260710010";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -377,6 +377,13 @@ function onKeyDown(e) {
     return;
   }
   if (e.code === "KeyB" && inputState.locked) { openChar(); return; }
+  // Esc while playing pauses (releases the mouse -> pause overlay). In windowed
+  // mode the browser already does this; in fullscreen Esc is keyboard-locked so
+  // we must release the pointer ourselves (without dropping out of fullscreen).
+  if (e.code === "Escape") {
+    if (inputState.locked) document.exitPointerLock?.();
+    return;
+  }
   if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "Space", "ShiftLeft", "ControlLeft"].includes(e.code)) {
     e.preventDefault();
   }
@@ -418,10 +425,13 @@ function requestLock() {
 // closing the tab) — deliberately NOT the fullscreen/refresh keys, so those
 // always work to leave fullscreen. The lock is applied/released by the
 // fullscreenchange handler, so exiting by any route releases it.
+// Escape is included so that, while fullscreen, pressing Esc (to close a menu
+// or pause) is delivered to the game instead of dropping out of fullscreen —
+// the browser keeps "hold Esc to exit fullscreen" as the escape hatch.
 const FS_LOCK_KEYS = [
   "KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "KeyE", "KeyR", "KeyQ", "KeyB",
   "KeyT", "KeyN", "Space", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
-  "Digit1", "Digit2", "Digit3",
+  "Digit1", "Digit2", "Digit3", "Escape",
 ];
 // Cross-browser fullscreen helpers (Safari/iOS still ship webkit-prefixed).
 function fsElement() {
