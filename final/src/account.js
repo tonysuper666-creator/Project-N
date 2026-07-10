@@ -27,6 +27,7 @@ function defaultData() {
     xp: 0,
     missions: {}, // accepted missions: id -> { progress, done, claimed }
     coins: 500,
+    avatar: null, // data-URL of an uploaded avatar; null = placeholder (future: upload UI)
     skins: { ak: "black" }, // in-hand AK skin; "gold" is earned from the merchant
     equipment: { primary: "ak47_black", secondary: "pistol_std", melee: "combat_knife", armor: null, gear: null },
     inventory: [
@@ -79,7 +80,15 @@ export const account = {
     if (!d.missions) d.missions = {};
     if (!d.skins) d.skins = { ak: "black" };
     if (!d.stats) d.stats = { kills: 0, deaths: 0, runs: 0 };
+    if (d.avatar === undefined) d.avatar = null;
     return d;
+  },
+  // Set / clear the current account's avatar (data-URL). Future: upload UI.
+  setAvatar(dataUrl) {
+    const d = this.getData();
+    if (!d) return;
+    d.avatar = dataUrl || null;
+    this.save(d);
   },
   // Grant coins + XP (kills, wave bonuses). Handles level-ups; returns the
   // number of levels gained so the caller can celebrate.
@@ -126,3 +135,25 @@ export const account = {
     return e ? e.qty : 0;
   },
 };
+
+// ==========================================================================
+// ⚠️ DEV-ONLY built-in account — REMOVE BEFORE RELEASE ⚠️
+// Seeds a test account (username: admin / password: admin) directly into the
+// game so we can iterate on the profile/HUD without registering each time, and
+// auto-signs into it when no one is logged in. Delete this whole block (and the
+// call below) for the production build so real players start at the login
+// screen instead.
+// ==========================================================================
+const DEV_BUILTIN_USER = "admin";
+const DEV_BUILTIN_PASS = "admin";
+export function ensureDevAccount() {
+  const all = readAll();
+  if (!all[DEV_BUILTIN_USER]) {
+    all[DEV_BUILTIN_USER] = { passHash: hash(DEV_BUILTIN_PASS), created: Date.now(), data: defaultData() };
+    writeAll(all);
+  }
+  // auto-login as admin if there's no active session yet
+  if (!localStorage.getItem(SESS_KEY)) localStorage.setItem(SESS_KEY, DEV_BUILTIN_USER);
+}
+ensureDevAccount();
+// ===================== end DEV-ONLY block =================================

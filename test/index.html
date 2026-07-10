@@ -57,6 +57,13 @@
       <div class="w-ammo" id="ammo">30 / 150</div>
     </div>
 
+    <!-- bottom-right corner: player identity (avatar + name). Clickable when the
+         mouse is free (paused) to open the profile page. -->
+    <div id="playerChip" title="个人信息">
+      <span id="chipName" class="chip-name">admin</span>
+      <span id="chipAvatar" class="chip-avatar"><span class="chip-av-ph">A</span></span>
+    </div>
+
     <div id="missionTracker" aria-hidden="true"></div>
     <div id="damageFlash" aria-hidden="true"></div>
 
@@ -69,13 +76,29 @@
       </div>
     </div>
 
+    <!-- Pause / settings overlay (Esc). Mouse is free here. -->
     <div id="overlay">
-      <div class="panel">
-        <h1>训练场</h1>
-        <p>科幻射击雏形 · M1</p>
-        <button id="startBtn">点击开始</button>
-        <button id="fsBtn" class="primary-alt">🖵 全屏游戏</button>
-        <button id="backToLobby" class="ghost">返回大厅</button>
+      <div class="panel settings-panel">
+        <h1>设置</h1>
+        <p class="settings-sub">游戏暂停 · 调整设置或继续</p>
+        <div class="settings-body">
+          <label class="setting-row">
+            <span class="setting-label">鼠标灵敏度</span>
+            <input id="setSens" type="range" min="0.3" max="2.5" step="0.05" value="1" />
+            <span id="setSensVal" class="setting-val">1.00</span>
+          </label>
+          <label class="setting-row">
+            <span class="setting-label">音量</span>
+            <input id="setVol" type="range" min="0" max="1" step="0.05" value="1" />
+            <span id="setVolVal" class="setting-val">100%</span>
+          </label>
+        </div>
+        <div class="settings-btns">
+          <button id="startBtn">继续游戏</button>
+          <button id="fsBtn" class="primary-alt">🖵 全屏</button>
+          <button id="profileBtn" class="ghost">个人信息</button>
+          <button id="backToLobby" class="ghost">返回大厅</button>
+        </div>
         <p class="sub">全屏可锁定键盘，Ctrl+W 等快捷键不会误关标签页 · Esc 释放鼠标</p>
       </div>
     </div>

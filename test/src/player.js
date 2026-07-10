@@ -47,6 +47,7 @@ export function createPlayer(camera, world) {
     swayX: 0, // smoothed look velocity (-1..1), consumed by the view-model
     swayY: 0,
     speed2D: 0, // current horizontal speed (for FOV kick etc.)
+    lookSens: 1, // mouse sensitivity multiplier (settings slider)
     sliding: false,
     slideT: 0,
     slideCooldown: 0,
@@ -94,8 +95,9 @@ export function createPlayer(camera, world) {
 
   // Called from the mouse-move handler while pointer is locked.
   function look(dx, dy) {
-    state.yaw -= dx * 0.0024;
-    state.pitch = clamp(state.pitch - dy * 0.0019, -1.5, 1.5);
+    const s = state.lookSens || 1;
+    state.yaw -= dx * 0.0024 * s;
+    state.pitch = clamp(state.pitch - dy * 0.0019 * s, -1.5, 1.5);
     lookAccX += dx;
     lookAccY += dy;
   }

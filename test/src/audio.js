@@ -3,15 +3,22 @@
 // "thump"; melee is a swish; kill is a short stinger.
 
 let ctx = null;
+let masterGain = null;
+let masterVol = 1; // 0..1, adjustable from the settings menu
 function ac() {
   if (!ctx) {
     const AC = window.AudioContext || window.webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
+    masterGain = ctx.createGain();
+    masterGain.gain.value = masterVol;
+    masterGain.connect(ctx.destination);
   }
   if (ctx.state === "suspended") ctx.resume();
   return ctx;
 }
+// Everything routes through the master gain so the volume slider affects it all.
+function master() { return masterGain; }
 function noise(c, dur) {
   const n = Math.max(1, Math.floor(c.sampleRate * dur));
   const b = c.createBuffer(1, n, c.sampleRate);
@@ -32,6 +39,13 @@ function stopAmbient() {
 export const audio = {
   resume() { ac(); }, // call from a user gesture to unlock audio
 
+  // Master volume 0..1 (settings slider). Persists across the session.
+  setVolume(v) {
+    masterVol = Math.max(0, Math.min(1, v));
+    if (masterGain) masterGain.gain.value = masterVol;
+  },
+  getVolume() { return masterVol; },
+
   // Switch the looping ambience: "forest" | "base" | null (off).
   setAmbient(kind) {
     const c = ac(); if (!c) return;
@@ -46,7 +60,7 @@ export const audio = {
       const lfo = c.createOscillator(); lfo.frequency.value = 0.13;
       const lfoG = c.createGain(); lfoG.gain.value = 160;
       lfo.connect(lfoG).connect(f.frequency);
-      src.connect(f).connect(g).connect(c.destination);
+      src.connect(f).connect(g).connect(master());
       src.start(); lfo.start();
       ambient.nodes.push(src, lfo, g);
       // occasional bird chirps
@@ -61,7 +75,7 @@ export const audio = {
         const og = c.createGain(); og.gain.setValueAtTime(0.0001, t);
         og.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
         og.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-        o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.22);
+        o.connect(og).connect(master()); o.start(t); o.stop(t + 0.22);
         ambient.timer = setTimeout(chirp, 1800 + Math.random() * 5200);
       };
       ambient.timer = setTimeout(chirp, 1200);
@@ -69,11 +83,11 @@ export const audio = {
       // facility hum: low sine + faint filtered noise
       const o = c.createOscillator(); o.type = "sine"; o.frequency.value = 58;
       const og = c.createGain(); og.gain.value = 0.022;
-      o.connect(og).connect(c.destination); o.start();
+      o.connect(og).connect(master()); o.start();
       const src = c.createBufferSource(); src.buffer = noise(c, 2.0); src.loop = true;
       const f = c.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 900; f.Q.value = 0.6;
       const g = c.createGain(); g.gain.value = 0.012;
-      src.connect(f).connect(g).connect(c.destination); src.start();
+      src.connect(f).connect(g).connect(master()); src.start();
       ambient.nodes.push(o, src, og, g);
     }
   },
@@ -87,7 +101,7 @@ export const audio = {
     const f = c.createBiquadFilter(); f.type = "lowpass";
     f.frequency.setValueAtTime(700 + Math.random() * 300, t);
     const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
-    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.08);
+    src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.08);
   },
 
   // Headshot: sharp metallic ding layered over the hit.
@@ -97,7 +111,7 @@ export const audio = {
     const o = c.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(2600, t);
     o.frequency.exponentialRampToValueAtTime(1900, t + 0.09);
     const g = c.createGain(); g.gain.setValueAtTime(0.22, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.15);
+    o.connect(g).connect(master()); o.start(t); o.stop(t + 0.15);
   },
 
   // Slide: a short gravelly whoosh (filtered noise sweeping down).
@@ -110,7 +124,7 @@ export const audio = {
     const g = c.createGain();
     g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.05);
     g.gain.exponentialRampToValueAtTime(0.0001, t + 0.48);
-    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.5);
+    src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.5);
   },
 
   // UI: short soft click for menu buttons.
@@ -119,7 +133,7 @@ export const audio = {
     const t = c.currentTime;
     const o = c.createOscillator(); o.type = "square"; o.frequency.setValueAtTime(1150, t);
     const g = c.createGain(); g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.06);
+    o.connect(g).connect(master()); o.start(t); o.stop(t + 0.06);
   },
 
   shot(kind) {
@@ -130,7 +144,7 @@ export const audio = {
       const f = c.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1900; f.Q.value = 0.8;
       const g = c.createGain();
       g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.03); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-      src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.21);
+      src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.21);
       return;
     }
     const pistol = kind === "pistol";
@@ -141,11 +155,11 @@ export const audio = {
     f.frequency.setValueAtTime(pistol ? 5200 : smg ? 6200 : 3600, t); f.frequency.exponentialRampToValueAtTime(smg ? 600 : 380, t + dur);
     const g = c.createGain(); const peak = pistol ? 0.32 : smg ? 0.26 : 0.42;
     g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + dur);
+    src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + dur);
     const o = c.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(170, t); o.frequency.exponentialRampToValueAtTime(48, t + 0.1);
     const og = c.createGain(); og.gain.setValueAtTime(0.5, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.13);
+    o.connect(og).connect(master()); o.start(t); o.stop(t + 0.13);
   },
 
   reload() {
@@ -155,7 +169,7 @@ export const audio = {
       const src = c.createBufferSource(); src.buffer = noise(c, 0.05);
       const f = c.createBiquadFilter(); f.type = "highpass"; f.frequency.value = 1500;
       const g = c.createGain(); g.gain.setValueAtTime(0.18, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
-      src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.06);
+      src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.06);
     }
   },
 
@@ -165,10 +179,10 @@ export const audio = {
     const o = c.createOscillator(); o.type = "square";
     o.frequency.setValueAtTime(900, t); o.frequency.exponentialRampToValueAtTime(180, t + 0.18);
     const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.23);
+    o.connect(g).connect(master()); o.start(t); o.stop(t + 0.23);
     const o2 = c.createOscillator(); o2.type = "sine"; o2.frequency.setValueAtTime(1400, t + 0.05);
     const g2 = c.createGain(); g2.gain.setValueAtTime(0.15, t + 0.05); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
-    o2.connect(g2).connect(c.destination); o2.start(t + 0.05); o2.stop(t + 0.21);
+    o2.connect(g2).connect(master()); o2.start(t + 0.05); o2.stop(t + 0.21);
   },
 
   // Distant, muffled crack for enemy fire — clearly quieter than the player's gun.
@@ -179,7 +193,7 @@ export const audio = {
     const f = c.createBiquadFilter(); f.type = "lowpass";
     f.frequency.setValueAtTime(1600, t); f.frequency.exponentialRampToValueAtTime(220, t + 0.12);
     const g = c.createGain(); g.gain.setValueAtTime(0.14, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.13);
+    src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.13);
   },
 
   hurt() {
@@ -188,11 +202,11 @@ export const audio = {
     const o = c.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.16);
     const g = c.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.19);
+    o.connect(g).connect(master()); o.start(t); o.stop(t + 0.19);
     const src = c.createBufferSource(); src.buffer = noise(c, 0.08);
     const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 700;
     const g2 = c.createGain(); g2.gain.setValueAtTime(0.2, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
-    src.connect(f).connect(g2).connect(c.destination); src.start(t); src.stop(t + 0.09);
+    src.connect(f).connect(g2).connect(master()); src.start(t); src.stop(t + 0.09);
   },
 
   // Loot pickup: short bright two-note blip.
@@ -202,7 +216,7 @@ export const audio = {
       const t = c.currentTime + i * 0.06;
       const o = c.createOscillator(); o.type = "sine"; o.frequency.setValueAtTime(freq, t);
       const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
-      o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.12);
+      o.connect(g).connect(master()); o.start(t); o.stop(t + 0.12);
     });
   },
 
@@ -212,7 +226,7 @@ export const audio = {
     const o = c.createOscillator(); o.type = "sine";
     o.frequency.setValueAtTime(500, t); o.frequency.exponentialRampToValueAtTime(950, t + 0.22);
     const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
-    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.27);
+    o.connect(g).connect(master()); o.start(t); o.stop(t + 0.27);
   },
 
   levelup() {
@@ -221,7 +235,7 @@ export const audio = {
       const t = c.currentTime + i * 0.09;
       const o = c.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(freq, t);
       const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
-      o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.23);
+      o.connect(g).connect(master()); o.start(t); o.stop(t + 0.23);
     });
   },
 };

@@ -14,11 +14,12 @@ import { renderInventory, ITEM_DB } from "./inventory.js?v=DEV";
 import { audio } from "./audio.js?v=DEV";
 import { recordProgress, trackedMissions } from "./missions.js?v=DEV";
 import { xpNeed } from "./account.js?v=DEV";
+import { createProfile } from "./profile.js?v=DEV";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710010";
+const BUILD_VERSION = "260710011";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -254,6 +255,61 @@ const ui = createUI({
   onMissionsChanged: () => refreshMissionHUD(),
 });
 
+// --- Profile page (3D character + stats) ----------------------------------
+const profile = createProfile();
+profile.onClose(() => { showPause(); }); // closing the profile returns to the pause menu
+function openProfile() {
+  if (document.pointerLockElement) document.exitPointerLock?.();
+  overlay.classList.add("hidden"); // profile takes over from the pause menu
+  profile.open();
+}
+
+// --- Player identity chip (bottom-right avatar + username) ------------------
+const chipName = document.getElementById("chipName");
+const chipAvatar = document.getElementById("chipAvatar");
+const playerChip = document.getElementById("playerChip");
+function refreshPlayerChip() {
+  const d = account.getData();
+  const user = account.current() || "—";
+  if (chipName) chipName.textContent = user;
+  if (chipAvatar) {
+    chipAvatar.innerHTML = d && d.avatar
+      ? `<img src="${d.avatar}" alt="avatar" />`
+      : `<span class="chip-av-ph">${(user[0] || "?").toUpperCase()}</span>`;
+  }
+}
+refreshPlayerChip();
+playerChip?.addEventListener("click", openProfile);
+document.getElementById("profileBtn")?.addEventListener("click", openProfile);
+
+// --- Settings (mouse sensitivity + volume), persisted in localStorage -------
+const sensInput = document.getElementById("setSens");
+const sensVal = document.getElementById("setSensVal");
+const volInput = document.getElementById("setVol");
+const volVal = document.getElementById("setVolVal");
+function applySensitivity(v) {
+  player.state.lookSens = v;
+  if (sensVal) sensVal.textContent = v.toFixed(2);
+  localStorage.setItem("pn_sens", String(v));
+}
+function applyVolume(v) {
+  audio.setVolume(v);
+  if (volVal) volVal.textContent = `${Math.round(v * 100)}%`;
+  localStorage.setItem("pn_vol", String(v));
+}
+(function initSettings() {
+  const sens = parseFloat(localStorage.getItem("pn_sens"));
+  const vol = parseFloat(localStorage.getItem("pn_vol"));
+  const s = Number.isFinite(sens) ? sens : 1;
+  const vv = Number.isFinite(vol) ? vol : 1;
+  if (sensInput) sensInput.value = String(s);
+  if (volInput) volInput.value = String(vv);
+  applySensitivity(s);
+  applyVolume(vv);
+})();
+sensInput?.addEventListener("input", (e) => applySensitivity(parseFloat(e.target.value)));
+volInput?.addEventListener("input", (e) => applyVolume(parseFloat(e.target.value)));
+
 // --- Death / respawn ------------------------------------------------------
 const deathScreen = document.getElementById("deathScreen");
 let dead = false;
@@ -363,6 +419,11 @@ function updateInteraction() {
 
 function onKeyDown(e) {
   if (e.code === "F8" || e.code === "F11") { e.preventDefault(); toggleFullscreen(); return; }
+  // Profile page: Esc closes it back to the pause menu.
+  if (profile.isOpen()) {
+    if (e.code === "Escape") profile.close();
+    return;
+  }
   // Backpack/attributes panel: B or Esc both just close it and resume the game.
   if (!charPanel.classList.contains("hidden")) {
     if (e.code === "KeyB" || e.code === "Escape") closeChar(true);
@@ -479,14 +540,15 @@ function showPause() {
 
 function onPointerLockChange() {
   inputState.locked = document.pointerLockElement === renderer.domElement;
-  // Show the start overlay only when paused with no menu/backpack/death panel open.
-  const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden") || dead;
+  // Show the pause/settings overlay only when paused with no other panel open.
+  const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden") || dead || profile.isOpen();
   overlay.classList.toggle("hidden", inputState.locked || panelOpen);
   crosshair.style.display = inputState.locked ? "block" : "none";
   document.body.classList.toggle("playing", inputState.locked); // shows the minimap
   if (inputState.locked) {
     refreshMissionHUD(); // pick up level/mission changes made in menus
     syncLoadout(); // equipment may have changed in the backpack
+    refreshPlayerChip();
     audio.setAmbient(world.state.inArea ? "forest" : "base");
   } else {
     audio.setAmbient(null);
