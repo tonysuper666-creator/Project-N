@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710007";
+const BUILD_VERSION = "260710008";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -413,23 +413,32 @@ function requestLock() {
   renderer.domElement.requestPointerLock?.();
 }
 
-// F8 toggles fullscreen. In fullscreen we also take a Keyboard Lock so the page
-// captures Ctrl+W etc. (otherwise crouch+forward closes the browser tab).
+// F8 toggles fullscreen both ways. While fullscreen we take a Keyboard Lock on
+// only the GAMEPLAY keys (so Ctrl+W etc. reach the page instead of closing the
+// tab) — deliberately NOT F8/Escape/F5, so those still work to leave fullscreen.
+// The lock is applied/released by the fullscreenchange handler, so exiting by
+// any means (F8, Esc, browser UI) always releases it.
+const FS_LOCK_KEYS = [
+  "KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "KeyE", "KeyR", "KeyQ", "KeyB",
+  "KeyT", "KeyN", "Space", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
+  "Digit1", "Digit2", "Digit3",
+];
 function enterFullscreen() {
-  const p = document.documentElement.requestFullscreen?.();
-  (p || Promise.resolve()).then(() => { try { navigator.keyboard?.lock?.(); } catch (_) {} }).catch(() => {});
+  document.documentElement.requestFullscreen?.().catch(() => {});
 }
 function toggleFullscreen() {
-  if (!document.fullscreenElement) {
-    enterFullscreen();
-  } else {
-    try { navigator.keyboard?.unlock?.(); } catch (_) {}
-    document.exitFullscreen?.();
-  }
+  if (!document.fullscreenElement) enterFullscreen();
+  else document.exitFullscreen?.().catch(() => {});
 }
+document.addEventListener("fullscreenchange", () => {
+  try {
+    if (document.fullscreenElement) navigator.keyboard?.lock?.(FS_LOCK_KEYS);
+    else navigator.keyboard?.unlock?.();
+  } catch (_) { /* keyboard lock unsupported (e.g. Firefox) — harmless */ }
+});
 
-// "全屏游戏" button: go fullscreen (which keyboard-locks Ctrl+W etc.) AND lock
-// the pointer to start playing, all within this one click gesture.
+// "全屏游戏" button: go fullscreen AND lock the pointer to start playing, all
+// within this one click gesture.
 function fullscreenAndPlay() {
   if (!document.fullscreenElement) enterFullscreen();
   requestLock();

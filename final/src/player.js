@@ -3,9 +3,12 @@ import { audio } from "./audio.js?v=DEV";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
-// Slide tuning.
-const SLIDE_MAX_T = 0.95; // hard cap on slide duration (s)
-const SLIDE_FRICTION = 7.5; // slide speed bleeds off at this rate (units/s²)
+// Speed tiers (multipliers of moveSpeed). Distinct, ascending:
+//   crouch 0.55 < walk 1.0 < sprint 1.7 < slide-peak 2.15 ... curving down to 0.9
+// Slide tuning — a slide holds a burst faster than a sprint, then curves down.
+const SLIDE_DURATION = 0.85; // slide length (s)
+const SLIDE_PEAK_MUL = 2.15; // early slide speed (× moveSpeed) — beats sprint (1.7)
+const SLIDE_END_MUL = 0.9; // speed at the end of the slide (× moveSpeed)
 const SLIDE_STEER = 3.2; // how quickly the slide can be curved with WASD
 const SLIDE_COOLDOWN = 0.45; // gap before you can slide again (s)
 
@@ -77,9 +80,9 @@ export function createPlayer(camera, world) {
     else { dx /= m; dz /= m; }
     state.slideDirX = dx;
     state.slideDirZ = dz;
-    const boost = Math.max(state.speed2D * 1.25, state.moveSpeed * 2.0);
-    state.velX = dx * boost;
-    state.velZ = dz * boost;
+    const peak = state.moveSpeed * SLIDE_PEAK_MUL; // launch faster than a sprint
+    state.velX = dx * peak;
+    state.velZ = dz * peak;
     audio.slide?.();
   }
 
@@ -191,11 +194,15 @@ export function createPlayer(camera, world) {
     const len = Math.hypot(mx, mz);
 
     if (state.sliding) {
-      // Slide: decaying burst along a locked (but gently steerable) direction.
+      // Slide speed follows an explicit curve: it launches faster than a sprint
+      // and holds that early, then curves down toward a crouch-walk near the end
+      // (quadratic ease keeps it fast early, dropping off increasingly late).
       state.slideT += dt;
-      let sp = Math.hypot(state.velX, state.velZ);
-      sp = Math.max(0, sp - SLIDE_FRICTION * dt);
-      if (len > 0) { // curve the slide a little toward the input direction
+      const p = Math.min(1, state.slideT / SLIDE_DURATION);
+      const peak = state.moveSpeed * SLIDE_PEAK_MUL;
+      const endSp = state.moveSpeed * SLIDE_END_MUL;
+      const sp = peak + (endSp - peak) * (p * p); // p*p → holds high, then curves down
+      if (len > 0) { // steer the slide a little toward the input direction
         const s = Math.min(1, SLIDE_STEER * dt);
         state.slideDirX += (mx / len - state.slideDirX) * s;
         state.slideDirZ += (mz / len - state.slideDirZ) * s;
@@ -208,27 +215,46 @@ export function createPlayer(camera, world) {
       state.pos.x += state.velX * dt;
       state.pos.z += state.velZ * dt;
       state.speed2D = sp;
-      // A tap-slide runs its course: end when timed out, slowed to a crouch-walk,
-      // or knocked airborne (a jump slide-hops out via queueJump).
-      if (state.slideT > SLIDE_MAX_T || sp < state.moveSpeed || !state.grounded) {
-        endSlide();
-      }
-    } else {
-      // wish velocity -> exponential approach: quick to top speed on the ground,
-      // gentle drift in the air. Feels like acceleration without losing max speed.
+      // ends when it runs its course or you're knocked airborne (jump = slide-hop)
+      if (state.slideT >= SLIDE_DURATION || !state.grounded) endSlide();
+    } else if (state.grounded) {
+      // Ground: exponential approach to the wish velocity (crisp accel/stop).
       let speed = state.moveSpeed;
       if (state.crouching) speed *= state.crouchMul;
-      if (state.sprinting) speed *= state.sprintMul;
+      else if (state.sprinting) speed *= state.sprintMul;
       let wishX = 0;
       let wishZ = 0;
       if (len > 0) {
         wishX = (mx / len) * speed;
         wishZ = (mz / len) * speed;
       }
-      const accel = state.grounded ? (len > 0 ? 13 : 11) : 3.2;
+      const accel = len > 0 ? 13 : 11;
       const k = Math.min(1, accel * dt);
       state.velX += (wishX - state.velX) * k;
       state.velZ += (wishZ - state.velZ) * k;
+      state.pos.x += state.velX * dt;
+      state.pos.z += state.velZ * dt;
+      state.speed2D = Math.hypot(state.velX, state.velZ);
+    } else {
+      // Airborne: preserve horizontal momentum (so a sprint- or slide-hop keeps
+      // its speed), only steer the direction toward input. From near-standstill
+      // in the air you can still build up to walk speed.
+      const cur = Math.hypot(state.velX, state.velZ);
+      if (len > 0 && cur > 0.05) {
+        const dirX = mx / len;
+        const dirZ = mz / len;
+        const steer = Math.min(1, 2.6 * dt);
+        let vx = state.velX + dirX * cur * steer;
+        let vz = state.velZ + dirZ * cur * steer;
+        const m = Math.hypot(vx, vz) || 1;
+        const mag = Math.max(cur, state.moveSpeed); // never air-brake below a walk
+        state.velX = (vx / m) * mag;
+        state.velZ = (vz / m) * mag;
+      } else if (len > 0) {
+        const k = Math.min(1, 3 * dt);
+        state.velX += ((mx / len) * state.moveSpeed - state.velX) * k;
+        state.velZ += ((mz / len) * state.moveSpeed - state.velZ) * k;
+      }
       state.pos.x += state.velX * dt;
       state.pos.z += state.velZ * dt;
       state.speed2D = Math.hypot(state.velX, state.velZ);
@@ -246,7 +272,16 @@ export function createPlayer(camera, world) {
       state.grounded = false;
       coyote = 0;
       jumpBuffer = 0;
-      if (state.sliding) endSlide(); // slide-hop: keep the horizontal momentum
+      // Slide-hop: leaving a slide by jumping inherits SPRINT speed (not the
+      // faster slide-peak), so you can't chain slide→jump to keep stacking
+      // speed — the hop is capped at a sprint and its momentum carries in the air.
+      if (state.sliding) {
+        const sprintSp = state.moveSpeed * state.sprintMul;
+        const dm = Math.hypot(state.velX, state.velZ) || 1;
+        state.velX = (state.velX / dm) * sprintSp;
+        state.velZ = (state.velZ / dm) * sprintSp;
+        endSlide();
+      }
     }
 
     const prevVy = state.vy;
