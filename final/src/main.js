@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710006";
+const BUILD_VERSION = "260710007";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -415,14 +415,24 @@ function requestLock() {
 
 // F8 toggles fullscreen. In fullscreen we also take a Keyboard Lock so the page
 // captures Ctrl+W etc. (otherwise crouch+forward closes the browser tab).
+function enterFullscreen() {
+  const p = document.documentElement.requestFullscreen?.();
+  (p || Promise.resolve()).then(() => { try { navigator.keyboard?.lock?.(); } catch (_) {} }).catch(() => {});
+}
 function toggleFullscreen() {
   if (!document.fullscreenElement) {
-    const p = document.documentElement.requestFullscreen?.();
-    (p || Promise.resolve()).then(() => { try { navigator.keyboard?.lock?.(); } catch (_) {} }).catch(() => {});
+    enterFullscreen();
   } else {
     try { navigator.keyboard?.unlock?.(); } catch (_) {}
     document.exitFullscreen?.();
   }
+}
+
+// "全屏游戏" button: go fullscreen (which keyboard-locks Ctrl+W etc.) AND lock
+// the pointer to start playing, all within this one click gesture.
+function fullscreenAndPlay() {
+  if (!document.fullscreenElement) enterFullscreen();
+  requestLock();
 }
 
 // Browsers block requestPointerLock when it's triggered by the Esc key (Esc is
@@ -456,6 +466,7 @@ function onPointerLockChange() {
 }
 
 startBtn.addEventListener("click", requestLock);
+document.getElementById("fsBtn")?.addEventListener("click", fullscreenAndPlay);
 renderer.domElement.addEventListener("click", () => {
   if (!inputState.locked) requestLock();
 });

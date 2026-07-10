@@ -98,6 +98,9 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   // Loadout modifiers applied from the equipped gear (set via applyLoadout).
   const loadout = { reloadMul: 1 };
 
+  const BASE_RESERVE = 999; // in the base (training) reserve ammo is unlimited
+  let prevInArea = false; // tracks base<->area transitions for the ammo reset
+
   // Swap the primary slot / gear modifiers to match the equipped loadout.
   // Called by the shell when the account's equipment changes.
   function applyLoadout(opts = {}) {
@@ -277,6 +280,22 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   }
 
   function update(dt, time) {
+    // --- ammo economy by region (PvE world only) ---
+    // In the base (training range) reserve ammo is locked to 999 so you can
+    // practise freely. Deploying to a combat area resets reserves to the
+    // weapon's standard loadout so ammo actually matters out in the field.
+    // Guarded on `inArea` existing so the 1v1 arena (no base concept) keeps
+    // its own finite-ammo economy untouched.
+    if (world.state && "inArea" in world.state) {
+      const inArea = !!world.state.inArea;
+      if (!inArea) {
+        for (const w of weapons) if (w.def.mode !== "melee") w.reserve = BASE_RESERVE;
+      } else if (!prevInArea) {
+        for (const w of weapons) if (w.def.mode !== "melee") w.reserve = w.def.reserve;
+      }
+      prevInArea = inArea;
+    }
+
     // weapon switch: lower -> swap -> raise
     if (equipPhase === "lower") {
       equipT = Math.min(1, equipT + dt / SWITCH_TIME);

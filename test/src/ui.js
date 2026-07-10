@@ -7,9 +7,8 @@ import { audio } from "./audio.js?v=DEV";
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
 // game.
 
+// Note:弹药不在商店出售 —— 基地内备用弹无限（锁定 999），部署时按标准装载补满。
 const VENDOR_ITEMS = [
-  { name: "步枪弹药 ×60", price: 120, ammo: { id: "rifle", qty: 60 } },
-  { name: "手枪弹药 ×36", price: 80, ammo: { id: "pistol", qty: 36 } },
   { name: "医疗针剂 ×1", price: 200, give: "med_stim" },
   { name: "数据芯片 ×1", price: 350, give: "data_chip" },
 ];
