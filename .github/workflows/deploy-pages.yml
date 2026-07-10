@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - claude/charming-lovelace-9peiva
+      - claude/project-completion-review-v05k1p
   workflow_dispatch:
 
 permissions:
