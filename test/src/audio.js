@@ -20,8 +20,94 @@ function noise(c, dur) {
   return b;
 }
 
+// --- ambient bed (wind + birds in the field, low hum in the base) ----------
+let ambient = null; // { nodes: [], timer }
+function stopAmbient() {
+  if (!ambient) return;
+  for (const n of ambient.nodes) { try { n.stop ? n.stop() : n.disconnect(); } catch (_) {} }
+  if (ambient.timer) clearTimeout(ambient.timer);
+  ambient = null;
+}
+
 export const audio = {
   resume() { ac(); }, // call from a user gesture to unlock audio
+
+  // Switch the looping ambience: "forest" | "base" | null (off).
+  setAmbient(kind) {
+    const c = ac(); if (!c) return;
+    stopAmbient();
+    if (!kind) return;
+    ambient = { nodes: [], timer: null };
+    if (kind === "forest") {
+      // wind: looping noise through a slowly-wobbling lowpass
+      const src = c.createBufferSource(); src.buffer = noise(c, 2.5); src.loop = true;
+      const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 420; f.Q.value = 0.4;
+      const g = c.createGain(); g.gain.value = 0.045;
+      const lfo = c.createOscillator(); lfo.frequency.value = 0.13;
+      const lfoG = c.createGain(); lfoG.gain.value = 160;
+      lfo.connect(lfoG).connect(f.frequency);
+      src.connect(f).connect(g).connect(c.destination);
+      src.start(); lfo.start();
+      ambient.nodes.push(src, lfo, g);
+      // occasional bird chirps
+      const chirp = () => {
+        if (!ambient) return;
+        const t = c.currentTime + 0.02;
+        const o = c.createOscillator(); o.type = "sine";
+        const base = 2400 + Math.random() * 1600;
+        o.frequency.setValueAtTime(base, t);
+        o.frequency.exponentialRampToValueAtTime(base * (1.1 + Math.random() * 0.4), t + 0.07);
+        o.frequency.exponentialRampToValueAtTime(base * 0.9, t + 0.16);
+        const og = c.createGain(); og.gain.setValueAtTime(0.0001, t);
+        og.gain.exponentialRampToValueAtTime(0.05, t + 0.02);
+        og.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
+        o.connect(og).connect(c.destination); o.start(t); o.stop(t + 0.22);
+        ambient.timer = setTimeout(chirp, 1800 + Math.random() * 5200);
+      };
+      ambient.timer = setTimeout(chirp, 1200);
+    } else if (kind === "base") {
+      // facility hum: low sine + faint filtered noise
+      const o = c.createOscillator(); o.type = "sine"; o.frequency.value = 58;
+      const og = c.createGain(); og.gain.value = 0.022;
+      o.connect(og).connect(c.destination); o.start();
+      const src = c.createBufferSource(); src.buffer = noise(c, 2.0); src.loop = true;
+      const f = c.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 900; f.Q.value = 0.6;
+      const g = c.createGain(); g.gain.value = 0.012;
+      src.connect(f).connect(g).connect(c.destination); src.start();
+      ambient.nodes.push(o, src, og, g);
+    }
+  },
+
+  // Footstep: soft filtered thud; crouch = quieter, sprint = harder.
+  footstep(mode = "walk") {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const vol = mode === "crouch" ? 0.05 : mode === "sprint" ? 0.16 : 0.1;
+    const src = c.createBufferSource(); src.buffer = noise(c, 0.07);
+    const f = c.createBiquadFilter(); f.type = "lowpass";
+    f.frequency.setValueAtTime(700 + Math.random() * 300, t);
+    const g = c.createGain(); g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.07);
+    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.08);
+  },
+
+  // Headshot: sharp metallic ding layered over the hit.
+  headshot() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(2600, t);
+    o.frequency.exponentialRampToValueAtTime(1900, t + 0.09);
+    const g = c.createGain(); g.gain.setValueAtTime(0.22, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.14);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.15);
+  },
+
+  // UI: short soft click for menu buttons.
+  click() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = "square"; o.frequency.setValueAtTime(1150, t);
+    const g = c.createGain(); g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.05);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.06);
+  },
 
   shot(kind) {
     const c = ac(); if (!c) return;

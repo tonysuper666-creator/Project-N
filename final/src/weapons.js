@@ -21,6 +21,13 @@ const SMG_DEF = {
   vm: "rifle", sound: "smg",
 };
 
+// Spread tuning (radians): standing-still baseline + per-shot bloom.
+const SPREAD = {
+  rifle: { base: 0.0012, perShot: 0.13 },
+  smg: { base: 0.002, perShot: 0.09 },
+  pistol: { base: 0.0015, perShot: 0.2 },
+};
+
 export function createWeapons(camera, scene, world, player, hooks = {}, viewCamera = camera) {
   const ray = new THREE.Raycaster();
   const screenCenter = new THREE.Vector2(0, 0);
@@ -60,7 +67,25 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     firing: false,
     recoil: 0,
     swing: 0,
+    bloom: 0, // sustained-fire spread build-up (0..1)
+    burst: 0, // shots in the current burst (drives horizontal drift)
+    kickAccum: 0, // accumulated camera kick, partially recovered after firing
   }));
+
+  // Current cone spread in radians: baseline + bloom + movement penalties.
+  function currentSpread() {
+    const w = current;
+    if (w.def.mode === "melee") return 0;
+    const cfg = SPREAD[w.def.id] || SPREAD.rifle;
+    let s = cfg.base + w.bloom * 0.02;
+    const ps = player.state;
+    if (ps) {
+      s += (ps.speed2D || 0) * 0.0016; // moving spreads shots
+      if (!ps.grounded) s += 0.02; // jump-shots go wide
+      if (ps.crouching) s *= 0.6; // crouch tightens the cone
+    }
+    return s;
+  }
 
   let current = weapons[0];
   vm.setWeapon(current.def.vm || current.def.id);
@@ -91,8 +116,20 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
 
   // Returns the end point of the shot (hit point, or max range) so the caller
   // can draw a tracer.
-  function damageAt(range, damage) {
+  const devUp = new THREE.Vector3();
+  const devRight = new THREE.Vector3();
+  function damageAt(range, damage, spread = 0) {
     ray.setFromCamera(screenCenter, camera);
+    if (spread > 0) { // deviate the ray inside the spread cone
+      const a = Math.random() * Math.PI * 2;
+      const r = Math.random() * spread;
+      devRight.crossVectors(ray.ray.direction, camera.up).normalize();
+      devUp.crossVectors(devRight, ray.ray.direction).normalize();
+      ray.ray.direction
+        .addScaledVector(devRight, Math.cos(a) * r)
+        .addScaledVector(devUp, Math.sin(a) * r)
+        .normalize();
+    }
     ray.far = range;
     const hits = ray.intersectObjects(world.getHittables(), false);
     if (hits.length === 0) {
@@ -104,9 +141,14 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (obj.userData && obj.userData.type === "target") {
       const killed = world.damageTarget(obj, damage);
       if (hooks.onHitmarker) hooks.onHitmarker(killed, "target");
+      if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, damage, false);
     } else if (obj.userData && obj.userData.type === "enemy") {
-      const killed = world.damageEnemy(obj.userData.enemy, damage);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy");
+      const isHead = obj.userData.part === "head"; // headshots hit twice as hard
+      const applied = isHead ? damage * 2 : damage;
+      const ctrl = obj.userData.enemy;
+      const killed = world.damageEnemy(ctrl, applied);
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy });
+      if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, applied, isHead);
     } else if (obj.userData && typeof obj.userData.onHit === "function") {
       obj.userData.onHit(damage); // e.g. a networked opponent in the 1v1 mode
       if (hooks.onHitmarker) hooks.onHitmarker(false);
@@ -143,13 +185,43 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     // a touch more recoil standing; much less when crouched
     const rm = player.state && player.state.crouching ? 0.4 : 1.2;
     w.recoil = Math.min(w.recoil + w.def.recoil * rm, 0.18);
-    player.addPitch(w.def.kick * rm);
+    const kick = w.def.kick * rm;
+    player.addPitch(kick);
+    w.kickAccum = Math.min(w.kickAccum + kick, 0.12); // recovered after the burst
+    // sustained spray drifts sideways in a wobble pattern (CS-style)
+    w.burst += 1;
+    if (w.burst > 4 && player.addYaw) {
+      player.addYaw(Math.sin(w.burst * 0.7) * kick * 0.6);
+    }
+    const cfg = SPREAD[w.def.id] || SPREAD.rifle;
+    const spread = currentSpread();
+    w.bloom = Math.min(1, w.bloom + cfg.perShot);
     muzzle.intensity = 4.5;
     vm.flash();
+    spawnCasing();
     audio.shot(w.def.sound || w.def.id);
-    const end = damageAt(w.def.range, w.def.damage);
+    const end = damageAt(w.def.range, w.def.damage, spread);
     // brief bullet tracer (worlds that support it draw the line)
     if (end && world.spawnPlayerTracer) world.spawnPlayerTracer(camera, end);
+  }
+
+  // Brass casing ejected to the right of the view — pure eye candy.
+  const casingGeo = new THREE.BoxGeometry(0.014, 0.014, 0.04);
+  const camDir = new THREE.Vector3();
+  const camRight = new THREE.Vector3();
+  function spawnCasing() {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xc8a038, transparent: true, opacity: 1 });
+    const m = new THREE.Mesh(casingGeo, mat);
+    camera.getWorldPosition(m.position);
+    camera.getWorldDirection(camDir);
+    camRight.crossVectors(camDir, camera.up).normalize();
+    m.position.addScaledVector(camRight, 0.22).addScaledVector(camera.up, -0.12).addScaledVector(camDir, 0.35);
+    const life = 0.7;
+    impacts.push({
+      mesh: m, life, max: life,
+      vel: new THREE.Vector3().addScaledVector(camRight, 1.4 + Math.random()).addScaledVector(camera.up, 1.4 + Math.random() * 0.8).addScaledVector(camDir, 0.3),
+    });
+    scene.add(m);
   }
 
   function meleeSwing(time) {
@@ -226,6 +298,14 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       w.swing = Math.max(0, w.swing - dt * 2.4);
     } else {
       w.recoil = Math.max(0, w.recoil - dt * 0.9);
+      w.bloom = Math.max(0, w.bloom - dt * 2.2);
+      if (time - w.lastShot > 0.3) w.burst = 0;
+      // after the burst the camera smoothly recovers ~55% of the kick
+      if ((!w.firing || w.reloading) && w.kickAccum > 0) {
+        const rec = Math.min(w.kickAccum, dt * 0.4);
+        player.addPitch(-rec * 0.55);
+        w.kickAccum -= rec;
+      }
     }
     if (muzzle.intensity > 0) muzzle.intensity = Math.max(0, muzzle.intensity - dt * 40);
 
@@ -311,5 +391,5 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     };
   }
 
-  return { triggerDown, triggerUp, select, reload, resupply, addReserve, applyLoadout, update, getHUD };
+  return { triggerDown, triggerUp, select, reload, resupply, addReserve, applyLoadout, update, getHUD, getSpread: currentSpread };
 }

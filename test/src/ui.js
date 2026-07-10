@@ -1,6 +1,7 @@
 import { account } from "./account.js?v=DEV";
 import { ITEM_DB } from "./inventory.js?v=DEV";
 import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=DEV";
+import { audio } from "./audio.js?v=DEV";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -26,6 +27,9 @@ export function createUI(hooks = {}) {
   root.id = "menuRoot";
   root.className = "hidden";
   document.body.appendChild(root);
+  root.addEventListener("click", (e) => {
+    if (e.target.tagName === "BUTTON" && !e.target.disabled) audio.click();
+  });
 
   let open = false;
   const coins = () => { const d = account.getData(); return d ? d.coins : 0; };
@@ -199,5 +203,35 @@ export function createUI(hooks = {}) {
     else if (action === "deploy") openDeploy();
   }
 
-  return { openAction, close, toast, isOpen: () => open };
+  // Post-extraction debrief: what this run earned.
+  function showSummary(run) {
+    open = true;
+    const body = shell("撤离成功 · 行动结算", "本次出击的收获");
+    const stats = document.createElement("div");
+    stats.className = "sumStats";
+    stats.innerHTML =
+      `<div class="sumCell"><b>${run.kills}</b><span>击杀</span></div>` +
+      `<div class="sumCell"><b>${run.waves}</b><span>清剿波次</span></div>` +
+      `<div class="sumCell"><b>◈ ${run.coins}</b><span>金币收入</span></div>` +
+      `<div class="sumCell"><b>+${run.xp}</b><span>经验</span></div>`;
+    body.appendChild(stats);
+    const lootIds = Object.keys(run.loot);
+    const lootWrap = document.createElement("div");
+    lootWrap.className = "sumLoot";
+    if (lootIds.length === 0) {
+      lootWrap.innerHTML = `<div class="sumEmpty">本次没有拾取战利品</div>`;
+    } else {
+      for (const id of lootIds) {
+        const item = ITEM_DB[id];
+        const cell = document.createElement("div");
+        cell.className = "sumItem rar-" + (item ? item.rarity : "common");
+        cell.innerHTML = `<span class="si-icon">${item ? item.icon : "❓"}</span>` +
+          `<span class="si-name">${item ? item.name : id}</span><span class="si-qty">×${run.loot[id]}</span>`;
+        lootWrap.appendChild(cell);
+      }
+    }
+    body.appendChild(lootWrap);
+  }
+
+  return { openAction, close, toast, showSummary, isOpen: () => open };
 }

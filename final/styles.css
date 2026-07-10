@@ -715,3 +715,198 @@ canvas {
 }
 #missionTracker .mt-row.done { border-left-color: #6affc0; color: #baf5da; }
 #missionTracker .mt-prog { margin-left: 8px; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+/* ============================================================
+   V3 TECH THEME — unified font, modern FPS HUD, angular sci-fi GUI
+   ============================================================ */
+@font-face {
+  font-family: "Rajdhani";
+  src: url("./assets/fonts/rajdhani-500.woff2") format("woff2");
+  font-weight: 500; font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("./assets/fonts/rajdhani-600.woff2") format("woff2");
+  font-weight: 600; font-display: swap;
+}
+@font-face {
+  font-family: "Rajdhani";
+  src: url("./assets/fonts/rajdhani-700.woff2") format("woff2");
+  font-weight: 700; font-display: swap;
+}
+:root {
+  --font-tech: "Rajdhani", "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+  --hud-cyan: #7fd1ff;
+  --hud-panel: rgba(7, 14, 21, 0.72);
+  --hud-line: rgba(127, 209, 255, 0.45);
+}
+body, button, input, h1, h2, h3 { font-family: var(--font-tech); }
+#hud .title { font-weight: 700; letter-spacing: 3px; }
+#hud .hint { opacity: 0.5; }
+
+/* --- dynamic crosshair: 4 bars breathing with --gap ------------------- */
+#crosshair {
+  --gap: 6px;
+  position: fixed; left: 50%; top: 50%;
+  width: 0; height: 0; z-index: 6;
+  display: none;
+}
+#crosshair span { display: none; } /* legacy dot */
+#crosshair .ch {
+  position: absolute; background: #eaf6ff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, 0.9);
+}
+#crosshair .ch.t { left: -1px; bottom: var(--gap); width: 2px; height: 7px; }
+#crosshair .ch.b { left: -1px; top: var(--gap); width: 2px; height: 7px; }
+#crosshair .ch.l { top: -1px; right: var(--gap); height: 2px; width: 7px; }
+#crosshair .ch.r { top: -1px; left: var(--gap); height: 2px; width: 7px; }
+#crosshair .ch.dot { left: -1px; top: -1px; width: 2px; height: 2px; }
+
+/* --- bottom-left vitals ------------------------------------------------ */
+#vitals {
+  position: fixed; left: 22px; bottom: 20px; z-index: 5;
+  pointer-events: none; min-width: 240px;
+}
+#vitals .v-top { display: flex; gap: 8px; margin-bottom: 6px; align-items: center; }
+.lvChip {
+  padding: 1px 10px; font-size: 14px; font-weight: 700; letter-spacing: 1px;
+  color: #cfe9ff; background: var(--hud-panel);
+  border: 1px solid var(--hud-line);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+.sprintChip {
+  font-size: 12px; font-weight: 700; letter-spacing: 2px; color: #8effb0;
+  text-shadow: 0 0 8px rgba(70, 255, 176, 0.7);
+}
+#vitals .v-hp { display: flex; align-items: center; gap: 10px; }
+.hpNum {
+  font-size: 42px; font-weight: 700; line-height: 1; color: #eaf6ff;
+  text-shadow: 0 0 12px rgba(127, 209, 255, 0.35), 0 2px 3px rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums; min-width: 66px; text-align: right;
+}
+#healthBar {
+  width: 190px; height: 10px; background: rgba(10, 20, 30, 0.8);
+  border: 1px solid var(--hud-line);
+  clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%);
+}
+#healthFill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #3fd694, #8effb0);
+  box-shadow: 0 0 10px rgba(80, 255, 170, 0.5);
+  transition: width 0.18s ease;
+}
+#healthFill.low { background: linear-gradient(90deg, #d64a3f, #ff8a6a); box-shadow: 0 0 10px rgba(255, 90, 60, 0.6); }
+
+/* --- bottom-right weapon module (overrides legacy #stats) ------------- */
+#stats { right: 22px; bottom: 20px; text-align: right; }
+#stats .w-kills { font-size: 13px; opacity: 0.85; margin-bottom: 2px; }
+#stats .w-kills .label { opacity: 0.55; margin-right: 8px; letter-spacing: 2px; font-size: 11px; }
+#stats .w-kills #score { font-weight: 700; color: #cfe9ff; font-size: 16px; min-width: 0; }
+#stats .w-name { font-size: 15px; letter-spacing: 3px; color: #9fc4de; font-weight: 600; min-width: 0; }
+#stats .w-ammo {
+  font-size: 44px; font-weight: 700; line-height: 1.05; color: #eaf6ff;
+  text-shadow: 0 0 12px rgba(127, 209, 255, 0.35), 0 2px 3px rgba(0, 0, 0, 0.7);
+  font-variant-numeric: tabular-nums; min-width: 0;
+}
+
+/* --- top-right minimap + kill feed ------------------------------------- */
+#mapWrap { position: fixed; right: 18px; top: 14px; z-index: 5; pointer-events: none; text-align: right; }
+#minimap { display: none; filter: drop-shadow(0 4px 14px rgba(0, 0, 0, 0.5)); }
+body.playing #minimap { display: inline-block; }
+#killFeed { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+#killFeed .kf-row {
+  padding: 3px 12px; font-size: 13px; font-weight: 600; letter-spacing: 1px;
+  color: #ffd9c9; background: var(--hud-panel);
+  border-right: 3px solid #ff8a5a;
+  clip-path: polygon(8px 0, 100% 0, 100% 100%, 0 100%);
+  transition: opacity 0.4s ease, transform 0.4s ease;
+}
+#killFeed .kf-row.out { opacity: 0; transform: translateX(20px); }
+
+/* --- floating damage numbers ------------------------------------------- */
+.dmgNum {
+  position: fixed; z-index: 7; pointer-events: none;
+  transform: translate(-50%, -50%);
+  font-family: var(--font-tech);
+  font-size: 17px; font-weight: 700; color: #ffe9a0;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+  animation: dmgFloat 0.65s ease-out forwards;
+}
+.dmgNum.head { color: #ff5030; font-size: 21px; }
+@keyframes dmgFloat {
+  0% { opacity: 1; margin-top: 0; }
+  100% { opacity: 0; margin-top: -34px; }
+}
+
+/* headshot kill banner variant */
+#killBanner.head .kb-text { color: #ff7a5a; text-shadow: 0 0 16px rgba(255, 80, 40, 0.8); }
+
+/* --- tech menu panels (vendor / mission / deploy / summary) ------------ */
+#menuRoot .menuPanel {
+  font-family: var(--font-tech);
+  background:
+    repeating-linear-gradient(0deg, rgba(127, 209, 255, 0.025) 0 1px, transparent 1px 3px),
+    linear-gradient(165deg, rgba(16, 30, 44, 0.97), rgba(7, 13, 20, 0.97));
+  border: 1px solid var(--hud-line);
+  border-top: 2px solid var(--hud-cyan);
+  clip-path: polygon(0 0, calc(100% - 22px) 0, 100% 22px, 100% 100%, 22px 100%, 0 calc(100% - 22px));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.65), inset 0 0 60px rgba(30, 80, 120, 0.12);
+}
+#menuRoot .menuHead h2 { letter-spacing: 4px; font-weight: 700; }
+#menuRoot .menuHead h2::before { content: "▮ "; color: var(--hud-cyan); }
+#menuRoot .listRow {
+  background: linear-gradient(90deg, rgba(30, 52, 74, 0.5), rgba(16, 28, 40, 0.5));
+  border: 1px solid rgba(127, 209, 255, 0.16);
+  border-left: 3px solid rgba(127, 209, 255, 0.55);
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+#menuRoot .listRow:hover {
+  background: linear-gradient(90deg, rgba(40, 70, 100, 0.6), rgba(20, 36, 52, 0.6));
+  border-left-color: var(--hud-cyan);
+}
+#menuRoot .rowBtn {
+  font-family: var(--font-tech); font-weight: 700; letter-spacing: 2px;
+  clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%);
+}
+
+/* --- extraction summary ------------------------------------------------- */
+.sumStats { display: flex; gap: 12px; margin-bottom: 18px; }
+.sumCell {
+  flex: 1; text-align: center; padding: 14px 6px 10px;
+  background: rgba(20, 38, 56, 0.55);
+  border: 1px solid rgba(127, 209, 255, 0.22);
+  border-top: 2px solid var(--hud-cyan);
+  clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%);
+}
+.sumCell b { display: block; font-size: 30px; font-weight: 700; color: #eaf6ff; }
+.sumCell span { font-size: 12px; letter-spacing: 2px; opacity: 0.6; }
+.sumLoot { display: flex; flex-wrap: wrap; gap: 10px; }
+.sumItem {
+  display: flex; align-items: center; gap: 8px; padding: 8px 14px;
+  background: rgba(16, 28, 40, 0.7);
+  border: 1px solid var(--rar, #9fb3c8);
+  clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%);
+}
+.sumItem .si-icon { font-size: 20px; }
+.sumItem .si-name { font-size: 14px; color: color-mix(in srgb, var(--rar, #9fb3c8) 70%, #fff); }
+.sumItem .si-qty { font-size: 13px; opacity: 0.7; font-weight: 700; }
+.sumEmpty { opacity: 0.5; padding: 12px; letter-spacing: 2px; }
+
+/* --- overlay / death / auth / home facelift ----------------------------- */
+#overlay .panel h1, #deathScreen h1, .auth-logo, .home-logo { font-family: var(--font-tech); font-weight: 700; }
+#startBtn, #deathRespawn, .btn-primary, .home-card {
+  font-family: var(--font-tech); font-weight: 700; letter-spacing: 3px;
+  clip-path: polygon(10px 0, 100% 0, calc(100% - 10px) 100%, 0 100%);
+  border-radius: 0;
+}
+.auth-card, #charPanel .inv-panel {
+  border-top: 2px solid var(--hud-cyan);
+  clip-path: polygon(0 0, calc(100% - 18px) 0, 100% 18px, 100% 100%, 18px 100%, 0 calc(100% - 18px));
+  border-radius: 0;
+}
+#missionTracker .mt-row {
+  font-family: var(--font-tech); font-weight: 600; letter-spacing: 1px;
+  clip-path: polygon(0 0, calc(100% - 8px) 0, 100% 100%, 0 100%);
+  border-radius: 0;
+}

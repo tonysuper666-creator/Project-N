@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=DEV";
 import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=DEV";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { audio } from "./audio.js?v=DEV";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
@@ -28,6 +29,7 @@ export function createWorld(scene, hooks = {}) {
   key.shadow.camera.top = 28;
   key.shadow.camera.bottom = -28;
   scene.add(key);
+  scene.add(key.target);
   for (const [lx, lz, col] of [[-9, -4, 0x59c8ff], [9, -4, 0xffac4d], [0, 8, 0x59c8ff], [0, -10, 0x6affc0]]) {
     const lamp = new THREE.PointLight(col, 0.28, 22, 2);
     lamp.position.set(lx, HEIGHT - 1.0, lz);
@@ -334,6 +336,57 @@ export function createWorld(scene, hooks = {}) {
   ammoStation(13, 5);
 
   // ---------------------------------------------------------------------
+  // BASE DETAIL PASS — lockers, weapon rack, pipes, crate stacks, screens.
+  // Locker row along the back wall (one shared collider strip).
+  for (let i = 0; i < 5; i += 1) {
+    const lx = -12.5 + i * 1.15;
+    scene.add(boxMesh(1.0, 2.0, 0.5, panelMat, lx, 1.0, ROOM - 0.85));
+    scene.add(boxMesh(0.04, 1.7, 0.06, cyan, lx + 0.38, 1.0, ROOM - 1.12));
+    scene.add(boxMesh(0.5, 0.06, 0.04, darkMat, lx, 1.75, ROOM - 1.12));
+  }
+  colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(-10.2, 1, ROOM - 0.85), new THREE.Vector3(6.2, 2, 0.6)));
+  // Weapon rack (right wall): frame + three stylised rifles.
+  const rackX = ROOM - 0.95;
+  scene.add(place(bevelPanel(3.2, 2.2, 0.18, darkMat).rotateY(-Math.PI / 2), rackX, 1.5, 3.5));
+  for (let i = 0; i < 3; i += 1) {
+    const gz = 2.6 + i * 0.9;
+    const body = boxMesh(0.12, 0.16, 0.9, panelMat, rackX - 0.18, 1.5, gz);
+    body.rotation.x = -0.5;
+    scene.add(body);
+    const barrel = col(0.03, 0.5, darkMat, rackX - 0.18, 1.85, gz + 0.28, 8);
+    barrel.rotation.x = 1.07;
+    scene.add(barrel);
+  }
+  scene.add(boxMesh(0.06, 0.06, 2.9, orange, rackX - 0.3, 0.6, 3.5));
+  // Ceiling pipe runs with glowing collars.
+  for (const pz of [-6, 6]) {
+    scene.add(col(0.14, ROOM * 2 - 2, panelMat, 0, HEIGHT - 1.15, pz, 10, "x"));
+    for (const px of [-9, 0, 9]) scene.add(torus(0.2, 0.05, cyan, px, HEIGHT - 1.15, pz).rotateY(Math.PI / 2));
+  }
+  // Crate stacks near the deploy door corners.
+  for (const [cx2, cz2] of [[-5.5, -ROOM + 2.2], [5.5, -ROOM + 2.2]]) {
+    add(boxMesh(1.15, 1.05, 1.15, hazardMat, cx2, 0.52, cz2), true);
+    scene.add(boxMesh(0.95, 0.85, 0.95, panelMat, cx2 + 0.35, 1.45, cz2 - 0.1));
+    scene.add(boxMesh(0.05, 0.05, 1.17, mint, cx2, 1.07, cz2));
+  }
+  // Extra wall status screens (emissive holo panels).
+  for (const [sx2, sz2, yaw2, title2, col2] of [[-ROOM + 0.72, 8, Math.PI / 2, "SYSTEMS", "#7fe0ff"], [ROOM - 0.72, -8, -Math.PI / 2, "AREA STATUS", "#8effb0"]]) {
+    const scr2 = holoScreen(title2, 4, col2);
+    const panel2 = new THREE.Mesh(new THREE.PlaneGeometry(2.6, 1.3), new THREE.MeshStandardMaterial({ map: scr2, emissiveMap: scr2, emissive: 0xffffff, emissiveIntensity: 1.0, color: 0x0a1622 }));
+    panel2.rotation.y = yaw2;
+    place(panel2, sx2, 3.4, sz2);
+    scene.add(panel2);
+  }
+  // Soft spotlights over the two station alcoves.
+  for (const sx3 of [-1, 1]) {
+    const spot = new THREE.SpotLight(0xbfe4ff, 6, 14, 0.5, 0.5, 1.4);
+    spot.position.set(sx3 * (ROOM - 2.5), HEIGHT - 0.6, -2);
+    spot.target.position.set(sx3 * (ROOM - 1.5), 0.8, -2);
+    scene.add(spot);
+    scene.add(spot.target);
+  }
+
+  // ---------------------------------------------------------------------
   // TRAINING RANGE (behind spawn).
   const TARGET_HP = 30;
   const RESPAWN_DELAY = 1.5;
@@ -359,7 +412,7 @@ export function createWorld(scene, hooks = {}) {
   // =====================================================================
   // AREA 1 — procedural FOREST (built far away; player teleports in).
   const AX = 260; // x offset of the area region from the base
-  const FH = 30; // forest half-extent
+  const FH = 55; // forest half-extent
   const areaSpawn = new THREE.Vector3(AX, 0, 0);
   const baseSpawn = new THREE.Vector3(0, 0, 9);
   const areaHalfX = FH;
@@ -370,7 +423,7 @@ export function createWorld(scene, hooks = {}) {
   // store the base atmosphere so we can swap to a forest sky on deploy
   const baseFog = scene.fog;
   const baseBg = scene.background;
-  const forestFog = new THREE.Fog(0xc3d8cf, 18, 72);
+  const forestFog = new THREE.Fog(0xc3d8cf, 22, 98);
   const forestBg = (() => {
     const c = document.createElement("canvas"); c.width = 8; c.height = 256;
     const x = c.getContext("2d"); const g = x.createLinearGradient(0, 0, 0, 256);
@@ -384,149 +437,388 @@ export function createWorld(scene, hooks = {}) {
   areaGroup.visible = false;
   scene.add(areaGroup);
 
+  // --- Area 1 layout: points of interest (positions relative to AX) -------
+  const POI = {
+    compound: { x: 22, z: -20, w: 22, d: 18 }, // ruined outpost
+    pod: { x: -26, z: 18, r: 8 }, // crashed drop pod
+    pond: { x: -12, z: -28, rx: 7, rz: 5 },
+  };
+  // keep spawn/extract clearings and POI footprints free of vegetation
+  function isBlockedRel(ex, ez) {
+    if (Math.hypot(ex, ez) < 6) return true; // spawn clearing
+    if (Math.hypot(ex, ez - 8) < 3.5) return true; // extract pad
+    const c = POI.compound;
+    if (ex > c.x - c.w / 2 - 1.5 && ex < c.x + c.w / 2 + 1.5 && ez > c.z - c.d / 2 - 1.5 && ez < c.z + c.d / 2 + 1.5) return true;
+    if (Math.hypot(ex - POI.pod.x, ez - POI.pod.z) < POI.pod.r) return true;
+    if (Math.hypot((ex - POI.pond.x) / POI.pond.rx, (ez - POI.pond.z) / POI.pond.rz) < 1.35) return true;
+    return false;
+  }
+
+  // --- supply crates: openable once per run, burst into loot --------------
+  const supplyCrates = [];
+  function makeSupplyCrate(ex, ez, id) {
+    const seamMat = new THREE.MeshStandardMaterial({ color: 0x46ffb0, emissive: 0x40f0a0, emissiveIntensity: 0.9, roughness: 0.4 });
+    const body = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.66, 0.75), new THREE.MeshStandardMaterial({ color: 0x2c343e, roughness: 0.5, metalness: 0.5 }));
+    body.position.set(AX + ex, 0.33, ez);
+    body.castShadow = true; body.receiveShadow = true;
+    areaGroup.add(body); solids.push(body);
+    const seam = new THREE.Mesh(new THREE.BoxGeometry(0.99, 0.05, 0.79), seamMat);
+    seam.position.set(AX + ex, 0.52, ez);
+    areaGroup.add(seam);
+    const lbl = makeLabel("补给箱 [E]", "#8effb0");
+    lbl.position.set(AX + ex, 1.5, ez);
+    areaGroup.add(lbl);
+    supplyCrates.push({ id, opened: false, seamMat, pos: new THREE.Vector3(AX + ex, 0, ez) });
+    interactables.push({ name: "补给箱", action: "supply", id, pos: new THREE.Vector3(AX + ex, 0, ez), radius: 2.4 });
+  }
+  // Open a crate (once per run). Spawns a burst of loot orbs; false if empty.
+  function openSupplyCrate(id) {
+    const c = supplyCrates.find((s) => s.id === id);
+    if (!c || c.opened) return false;
+    c.opened = true;
+    c.seamMat.emissiveIntensity = 0.05;
+    for (let i = 0; i < 3; i += 1) {
+      spawnLoot({ x: c.pos.x + (Math.random() - 0.5) * 2, z: c.pos.z + 1 + Math.random() });
+    }
+    return true;
+  }
+
   function grassTexture() {
-    const c = document.createElement("canvas"); c.width = 128; c.height = 128;
+    const c = document.createElement("canvas"); c.width = 256; c.height = 256;
     const x = c.getContext("2d");
-    x.fillStyle = "#557f3a"; x.fillRect(0, 0, 128, 128);
-    for (let i = 0; i < 2400; i += 1) {
+    x.fillStyle = "#557f3a"; x.fillRect(0, 0, 256, 256);
+    // mottled moss/dry patches for large-scale variation
+    for (let i = 0; i < 26; i += 1) {
+      const g = x.createRadialGradient(Math.random() * 256, Math.random() * 256, 4, Math.random() * 256, Math.random() * 256, 26 + Math.random() * 40);
+      const dry = Math.random() < 0.4;
+      g.addColorStop(0, dry ? "rgba(122,124,58,0.35)" : "rgba(60,104,44,0.4)");
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
+    }
+    for (let i = 0; i < 5200; i += 1) {
       const g = 90 + Math.random() * 70;
       x.fillStyle = `rgba(${50 + Math.random() * 40 | 0},${g | 0},${45 + Math.random() * 35 | 0},0.5)`;
-      x.fillRect(Math.random() * 128, Math.random() * 128, 2, 3);
+      x.fillRect(Math.random() * 256, Math.random() * 256, 2, 3);
     }
-    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(30, 30);
+    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(44, 44);
     return t;
   }
-  function makeTree(kind) {
-    const g = new THREE.Group();
-    const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.3, 2.4, 8), new THREE.MeshStandardMaterial({ color: 0x4f3a26, roughness: 1 }));
-    trunk.position.y = 1.2; trunk.castShadow = true; trunk.receiveShadow = true; g.add(trunk);
-    const tint = 0.85 + Math.random() * 0.3;
-    if (kind === 0) { // conifer — 4 layered cones, varied green
-      const base = new THREE.Color(0x2e5a30).multiplyScalar(tint);
-      for (let i = 0; i < 4; i += 1) {
-        const c = base.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.06);
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(1.7 - i * 0.34, 1.7, 9), new THREE.MeshStandardMaterial({ color: c, roughness: 0.9, flatShading: true }));
-        cone.position.y = 2.1 + i * 0.95; cone.castShadow = true; g.add(cone);
-      }
-    } else { // broadleaf — organic foliage clump
-      const base = new THREE.Color(0x46792f).multiplyScalar(tint);
-      for (const [dx, dy, dz, r] of [[0, 2.8, 0, 1.5], [0.9, 2.5, 0.2, 1.0], [-0.8, 2.6, -0.3, 1.05], [0.1, 3.4, 0.3, 0.95], [-0.2, 2.9, 0.8, 0.85]]) {
-        const c = base.clone().offsetHSL(0, 0, (Math.random() - 0.5) * 0.06);
-        const s = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 1), new THREE.MeshStandardMaterial({ color: c, roughness: 0.85, flatShading: true }));
-        s.position.set(dx, dy, dz); s.castShadow = true; g.add(s);
-      }
-    }
+
+  // paint a flat vertex color onto a geometry so tree parts can be merged
+  // into one instanced mesh
+  function tintGeo(geo, hex) {
+    const g = geo.index ? geo.toNonIndexed() : geo;
+    const col = new THREE.Color(hex);
+    const n = g.attributes.position.count;
+    const arr = new Float32Array(n * 3);
+    for (let i = 0; i < n; i += 1) { arr[i * 3] = col.r; arr[i * 3 + 1] = col.g; arr[i * 3 + 2] = col.b; }
+    g.setAttribute("color", new THREE.BufferAttribute(arr, 3));
     return g;
   }
+  // one merged geometry per tree species (instanced below)
+  function treeGeometry(kind) {
+    const parts = [];
+    if (kind === 0) { // conifer
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.14, 0.3, 2.4, 7).translate(0, 1.2, 0), 0x4f3a26));
+      for (let i = 0; i < 4; i += 1) {
+        parts.push(tintGeo(new THREE.ConeGeometry(1.7 - i * 0.34, 1.7, 8).translate(0, 2.1 + i * 0.95, 0), i % 2 ? 0x2b562e : 0x33643a));
+      }
+    } else if (kind === 1) { // broadleaf
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.16, 0.32, 2.6, 7).translate(0, 1.3, 0), 0x53412c));
+      for (const [dx, dy, dz, r] of [[0, 2.9, 0, 1.5], [0.9, 2.6, 0.2, 1.0], [-0.8, 2.7, -0.3, 1.05], [0.1, 3.5, 0.3, 0.95], [-0.2, 3.0, 0.8, 0.85]]) {
+        parts.push(tintGeo(new THREE.IcosahedronGeometry(r, 1).translate(dx, dy, dz), 0x46792f));
+      }
+    } else if (kind === 2) { // birch: pale trunk, airy light foliage
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.1, 0.16, 3.2, 7).translate(0, 1.6, 0), 0xd9d9cd));
+      for (const [dx, dy, dz, r] of [[0, 3.5, 0, 1.05], [0.6, 3.0, 0.3, 0.7], [-0.55, 3.2, -0.25, 0.75]]) {
+        parts.push(tintGeo(new THREE.IcosahedronGeometry(r, 1).translate(dx, dy, dz), 0x8fbe62));
+      }
+    } else { // dead snag: bare trunk + skeletal branches
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.09, 0.24, 3.4, 6).translate(0, 1.7, 0), 0x4a3828));
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.045, 0.07, 1.5, 5).rotateZ(0.85).translate(0.55, 2.6, 0.1), 0x4a3828));
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.04, 0.06, 1.2, 5).rotateZ(-0.95).translate(-0.45, 2.2, -0.1), 0x4a3828));
+      parts.push(tintGeo(new THREE.CylinderGeometry(0.035, 0.05, 1.0, 5).rotateX(0.9).translate(0, 3.0, 0.4), 0x4a3828));
+    }
+    return mergeGeometries(parts);
+  }
+  // instanced mesh from a transform list ({x,y,z,s|sx..,ry,tint})
+  function instancedFrom(geo, mat, items, opts = {}) {
+    const mesh = new THREE.InstancedMesh(geo, mat, items.length);
+    const dummy = new THREE.Object3D();
+    const col = new THREE.Color();
+    items.forEach((it, i) => {
+      dummy.position.set(it.x, it.y || 0, it.z);
+      dummy.rotation.set(it.rx || 0, it.ry || 0, it.rz || 0);
+      const s = it.s || 1;
+      dummy.scale.set(it.sx || s, it.sy || s, it.sz || s);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      if (it.tint != null) mesh.setColorAt(i, col.setScalar(it.tint));
+    });
+    mesh.castShadow = opts.shadow !== false;
+    mesh.receiveShadow = true;
+    areaGroup.add(mesh);
+    return mesh;
+  }
+
+  let waterMat = null;
+  let sporesRef = null;
+
   (function buildForest() {
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(FH * 2 + 24, FH * 2 + 24), new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, metalness: 0 }));
+    // GROUND + dirt paths between the POIs
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(FH * 2 + 30, FH * 2 + 30), new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, metalness: 0 }));
     ground.rotation.x = -Math.PI / 2; ground.position.set(AX, 0, 0); ground.receiveShadow = true;
     areaGroup.add(ground); solids.push(ground);
-    const dirt = new THREE.MeshStandardMaterial({ color: 0x6a5238, roughness: 1 });
-    for (let i = 0; i < 10; i += 1) {
-      const p = new THREE.Mesh(new THREE.CircleGeometry(2 + Math.random() * 4, 16), dirt);
-      p.rotation.x = -Math.PI / 2; p.position.set(AX + (Math.random() - 0.5) * FH * 1.5, 0.01, (Math.random() - 0.5) * FH * 1.5);
+    const pathMat = new THREE.MeshStandardMaterial({ color: 0x6a5238, roughness: 1 });
+    function dirtPath(x1, z1, x2, z2, w) {
+      const len = Math.hypot(x2 - x1, z2 - z1);
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, w), pathMat);
+      m.rotation.x = -Math.PI / 2;
+      m.rotation.z = -Math.atan2(z2 - z1, x2 - x1);
+      m.position.set(AX + (x1 + x2) / 2, 0.015, (z1 + z2) / 2);
+      m.receiveShadow = true;
+      areaGroup.add(m);
+    }
+    dirtPath(0, 0, POI.compound.x - 6, POI.compound.z + 6, 2.4); // spawn -> outpost
+    dirtPath(0, 0, POI.pod.x + 5, POI.pod.z - 4, 2.2); // spawn -> pod
+    dirtPath(0, 0, POI.pond.x + 4, POI.pond.z + 4, 1.8); // spawn -> pond
+    for (let i = 0; i < 12; i += 1) { // loose dirt patches
+      const p = new THREE.Mesh(new THREE.CircleGeometry(2 + Math.random() * 4, 16), pathMat);
+      p.rotation.x = -Math.PI / 2;
+      p.position.set(AX + (Math.random() - 0.5) * FH * 1.6, 0.01, (Math.random() - 0.5) * FH * 1.6);
       areaGroup.add(p);
     }
-    // scattered trees (clearings near spawn 0,0 and extract 0,8)
+
+    // POND — still water, sandy rim, reeds
+    waterMat = new THREE.MeshStandardMaterial({ color: 0x3a7a9c, emissive: 0x14405c, emissiveIntensity: 0.35, transparent: true, opacity: 0.88, roughness: 0.15, metalness: 0.1 });
+    const water = new THREE.Mesh(new THREE.CircleGeometry(1, 40), waterMat);
+    water.rotation.x = -Math.PI / 2;
+    water.scale.set(POI.pond.rx, POI.pond.rz, 1);
+    water.position.set(AX + POI.pond.x, 0.03, POI.pond.z);
+    areaGroup.add(water);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(1, 1.18, 40), new THREE.MeshStandardMaterial({ color: 0x9a8a62, roughness: 1 }));
+    rim.rotation.x = -Math.PI / 2;
+    rim.scale.set(POI.pond.rx, POI.pond.rz, 1);
+    rim.position.set(AX + POI.pond.x, 0.02, POI.pond.z);
+    areaGroup.add(rim);
+    const reedItems = [];
+    for (let i = 0; i < 40; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      reedItems.push({
+        x: AX + POI.pond.x + Math.cos(a) * POI.pond.rx * (1.02 + Math.random() * 0.18),
+        y: 0.55, z: POI.pond.z + Math.sin(a) * POI.pond.rz * (1.02 + Math.random() * 0.18),
+        sx: 1, sy: 0.8 + Math.random() * 0.7, sz: 1, rz: (Math.random() - 0.5) * 0.2,
+      });
+    }
+    instancedFrom(new THREE.CylinderGeometry(0.02, 0.035, 1.1, 5), new THREE.MeshStandardMaterial({ color: 0x6f8a3c, roughness: 0.9 }), reedItems, { shadow: false });
+
+    // RUINED OUTPOST — concrete slab, broken walls, containers, watchtower
+    const conc = new THREE.MeshStandardMaterial({ color: 0x9aa0a4, roughness: 0.92, metalness: 0.05 });
+    const concDark = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.95 });
+    const CX = POI.compound.x, CZ = POI.compound.z;
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(POI.compound.w, 0.12, POI.compound.d), concDark);
+    slab.position.set(AX + CX, 0.06, CZ); slab.receiveShadow = true;
+    areaGroup.add(slab); solids.push(slab);
+    // axis-aligned wall segments (h, so AABB colliders fit exactly)
+    const walls = [
+      [CX - 10, CZ - 4, 0.4, 2.2, 9], // west wall (partial)
+      [CX - 10, CZ + 6.5, 0.4, 1.1, 4], // west wall broken stub
+      [CX - 3, CZ - 8.6, 8, 2.2, 0.4], // north wall
+      [CX + 6.5, CZ - 8.6, 4, 1.0, 0.4], // north broken stub
+      [CX + 10.6, CZ + 1, 0.4, 2.2, 7], // east wall
+      [CX + 2, CZ + 8.6, 6, 1.2, 0.4], // south low wall
+    ];
+    for (const [wx, wz, w, h, d] of walls) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), conc);
+      m.position.set(AX + wx, h / 2, wz);
+      m.castShadow = true; m.receiveShadow = true;
+      areaGroup.add(m); solids.push(m);
+      colliders.push(new THREE.Box3().setFromObject(m));
+    }
+    // cargo containers with a contrasting stripe
+    for (const [ox, oz, hue, ry] of [[CX + 5, CZ - 3, 0xa04a2a, 0], [CX - 4, CZ + 3.5, 0x2a5a8a, Math.PI / 2]]) {
+      const alongX = ry === 0;
+      const box = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 5.6 : 2.35, 2.3, alongX ? 2.35 : 5.6), new THREE.MeshStandardMaterial({ color: hue, roughness: 0.6, metalness: 0.35 }));
+      box.position.set(AX + ox, 1.15, oz);
+      box.castShadow = true; box.receiveShadow = true;
+      areaGroup.add(box); solids.push(box);
+      colliders.push(new THREE.Box3().setFromObject(box));
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 5.64 : 0.4, 0.5, alongX ? 0.4 : 5.64), new THREE.MeshStandardMaterial({ color: 0xd8d2c2, roughness: 0.6 }));
+      stripe.position.set(AX + ox, 1.7, oz);
+      areaGroup.add(stripe);
+    }
+    // watchtower (SE corner)
+    const TX = CX + 8, TZ = CZ + 6;
+    for (const [lx, lz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.4, 7), concDark);
+      leg.position.set(AX + TX + lx, 1.7, TZ + lz);
+      leg.castShadow = true;
+      areaGroup.add(leg);
+    }
+    const platform = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 2.2), conc);
+    platform.position.set(AX + TX, 3.5, TZ); platform.castShadow = true;
+    areaGroup.add(platform);
+    for (const sgn of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(sgn[0] === 0 ? 2.2 : 0.08, 0.5, sgn[0] === 0 ? 0.08 : 2.2), concDark);
+      rail.position.set(AX + TX + sgn[0] * 1.06, 3.85, TZ + sgn[1] * 1.06);
+      areaGroup.add(rail);
+    }
+    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.9, 0.9, 4), new THREE.MeshStandardMaterial({ color: 0x5a6a4a, roughness: 0.8 }));
+    roof.position.set(AX + TX, 4.9, TZ); roof.rotation.y = Math.PI / 4; roof.castShadow = true;
+    areaGroup.add(roof);
+    colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + TX, 1.7, TZ), new THREE.Vector3(1.9, 3.4, 1.9)));
+    // sandbag lines
+    for (const [sx, sz, w, d] of [[CX - 2, CZ - 2, 2.2, 0.55], [CX + 1.5, CZ + 5, 0.55, 2.2]]) {
+      const bag = new THREE.Mesh(new THREE.BoxGeometry(w, 0.72, d), new THREE.MeshStandardMaterial({ color: 0xb8a76a, roughness: 1 }));
+      bag.position.set(AX + sx, 0.36, sz);
+      bag.castShadow = true; bag.receiveShadow = true;
+      areaGroup.add(bag); solids.push(bag);
+      colliders.push(new THREE.Box3().setFromObject(bag));
+    }
+    makeSupplyCrate(CX, CZ, "crate_outpost");
+
+    // CRASHED DROP POD — scorched crater, tilted hull, ember glow
+    const PDX = POI.pod.x, PDZ = POI.pod.z;
+    const scorch = new THREE.Mesh(new THREE.CircleGeometry(5, 26), new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 1 }));
+    scorch.rotation.x = -Math.PI / 2;
+    scorch.position.set(AX + PDX, 0.018, PDZ);
+    areaGroup.add(scorch);
+    const hull = new THREE.Mesh(new THREE.CapsuleGeometry(1.15, 2.3, 6, 12), new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.45, metalness: 0.6 }));
+    hull.rotation.z = 1.2; hull.rotation.y = 0.4;
+    hull.position.set(AX + PDX, 0.95, PDZ);
+    hull.castShadow = true; hull.receiveShadow = true;
+    areaGroup.add(hull); solids.push(hull);
+    colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + PDX, 1, PDZ), new THREE.Vector3(3.4, 2, 2.6)));
+    for (const [gx, gy, gz, ry] of [[0.4, 1.3, 0.6, 0.5], [-0.6, 0.8, -0.5, -0.7]]) { // glowing cracks
+      const crack = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.06, 0.1), new THREE.MeshStandardMaterial({ color: 0xff7030, emissive: 0xff5a20, emissiveIntensity: 1.3, roughness: 0.4 }));
+      crack.position.set(AX + PDX + gx, gy, PDZ + gz);
+      crack.rotation.set(0.4, ry, 0.9);
+      areaGroup.add(crack);
+    }
+    const podGlow = new THREE.PointLight(0xff7030, 1.1, 11, 2);
+    podGlow.position.set(AX + PDX, 1.4, PDZ);
+    areaGroup.add(podGlow);
+    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.9), new THREE.MeshStandardMaterial({ color: 0x2c3138, roughness: 0.5, metalness: 0.6 }));
+    fin.position.set(AX + PDX - 1.6, 1.6, PDZ - 0.4);
+    fin.rotation.z = 0.9; fin.castShadow = true;
+    areaGroup.add(fin);
+    const shardMat = new THREE.MeshStandardMaterial({ color: 0x30353c, roughness: 0.6, metalness: 0.5 });
+    const shardItems = [];
+    for (let i = 0; i < 14; i += 1) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 1.8 + Math.random() * 3;
+      shardItems.push({ x: AX + PDX + Math.cos(a) * r, y: 0.1, z: PDZ + Math.sin(a) * r, s: 0.35 + Math.random() * 0.5, ry: Math.random() * 6, rx: Math.random() });
+    }
+    instancedFrom(new THREE.TetrahedronGeometry(0.5, 0), shardMat, shardItems);
+    makeSupplyCrate(PDX + 3.4, PDZ + 2.2, "crate_pod");
+
+    // ROCK PLATEAUS — big landmarks / hard cover
+    const plateauMat = new THREE.MeshStandardMaterial({ color: 0x84898f, roughness: 0.95, flatShading: true });
+    for (const [px, pz, r, h] of [[14, 20, 4.4, 2.6], [-20, -12, 3.4, 2.1], [34, 8, 3.8, 2.4]]) {
+      const rock = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.82, r, h, 7), plateauMat);
+      rock.position.set(AX + px, h / 2, pz);
+      rock.castShadow = true; rock.receiveShadow = true;
+      areaGroup.add(rock); solids.push(rock);
+      colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + px, h / 2, pz), new THREE.Vector3(r * 1.7, h, r * 1.7)));
+    }
+
+    // FOREST — four species, instanced (one draw call per species)
+    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
+    const treeLists = [[], [], [], []];
     let placed = 0, tries = 0;
-    while (placed < 150 && tries < 1100) {
+    while (placed < 300 && tries < 2600) {
       tries += 1;
-      const ex = (Math.random() - 0.5) * 2 * (FH - 2);
-      const ez = (Math.random() - 0.5) * 2 * (FH - 2);
-      if (Math.hypot(ex, ez) < 7) continue;
-      if (Math.hypot(ex, ez - 8) < 4) continue;
+      const ex = (Math.random() - 0.5) * 2 * (FH - 2.5);
+      const ez = (Math.random() - 0.5) * 2 * (FH - 2.5);
+      if (isBlockedRel(ex, ez)) continue;
+      const roll = Math.random();
+      const kind = roll < 0.45 ? 0 : roll < 0.75 ? 1 : roll < 0.9 ? 2 : 3;
       const s = 0.85 + Math.random() * 0.9;
-      const t = makeTree(Math.random() < 0.6 ? 0 : 1);
-      t.scale.setScalar(s); t.position.set(AX + ex, 0, ez); t.rotation.y = Math.random() * 6.28;
-      areaGroup.add(t);
+      treeLists[kind].push({ x: AX + ex, z: ez, s, ry: Math.random() * 6.28, tint: 0.85 + Math.random() * 0.3 });
       colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, 1, ez), new THREE.Vector3(0.55 * s, 2.2, 0.55 * s)));
       placed += 1;
     }
     // dense boundary ring (natural wall)
-    for (let a = 0; a < Math.PI * 2; a += 0.09) {
-      const r = FH - 0.5 + Math.random() * 2.5;
-      const t = makeTree(Math.random() < 0.7 ? 0 : 1); const s = 1 + Math.random() * 0.7;
-      t.scale.setScalar(s); t.position.set(AX + Math.cos(a) * r, 0, Math.sin(a) * r); t.rotation.y = Math.random() * 6.28;
-      areaGroup.add(t);
+    for (let a = 0; a < Math.PI * 2; a += 0.045) {
+      const r = FH - 0.5 + Math.random() * 3;
+      const kind = Math.random() < 0.75 ? 0 : 1;
+      treeLists[kind].push({ x: AX + Math.cos(a) * r, z: Math.sin(a) * r, s: 1.1 + Math.random() * 0.8, ry: Math.random() * 6.28, tint: 0.8 + Math.random() * 0.25 });
     }
-    // keep props out of the spawn / extract clearings
-    const inClearing = (ex, ez) => Math.hypot(ex, ez) < 6 || Math.hypot(ex, ez - 8) < 3.5;
-    // rocks + bushes (big rocks are solid cover)
-    const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.95, flatShading: true });
-    const bushMat = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, flatShading: true });
-    for (let i = 0; i < 22; i += 1) {
+    for (let k = 0; k < 4; k += 1) {
+      if (treeLists[k].length) instancedFrom(treeGeometry(k), treeMat, treeLists[k]);
+    }
+
+    // rocks / bushes / stumps — instanced clutter
+    const rockItems = [];
+    for (let i = 0; i < 70; i += 1) {
       const r = 0.4 + Math.random() * 0.9;
-      const ex = (Math.random() - 0.5) * FH * 1.6;
-      const ez = (Math.random() - 0.5) * FH * 1.6;
-      if (inClearing(ex, ez)) continue;
-      const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), rockMat);
-      rock.position.set(AX + ex, r * 0.5, ez);
-      rock.rotation.set(Math.random(), Math.random(), Math.random()); rock.castShadow = true; rock.receiveShadow = true; areaGroup.add(rock);
-      if (r > 0.85) { // big enough to hide behind
-        colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, r * 0.5, ez), new THREE.Vector3(r * 1.4, r, r * 1.4)));
-        solids.push(rock);
-      }
+      const ex = (Math.random() - 0.5) * FH * 1.8;
+      const ez = (Math.random() - 0.5) * FH * 1.8;
+      if (isBlockedRel(ex, ez)) continue;
+      rockItems.push({ x: AX + ex, y: r * 0.42, z: ez, s: r, rx: Math.random(), ry: Math.random() * 6 });
+      if (r > 0.85) colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, r * 0.5, ez), new THREE.Vector3(r * 1.4, r, r * 1.4)));
     }
-    for (let i = 0; i < 46; i += 1) {
-      const r = 0.4 + Math.random() * 0.5;
-      const ex = (Math.random() - 0.5) * FH * 1.6;
-      const ez = (Math.random() - 0.5) * FH * 1.6;
-      if (inClearing(ex, ez)) continue;
-      const b = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), bushMat);
-      b.position.set(AX + ex, r * 0.7, ez);
-      b.castShadow = true; areaGroup.add(b);
+    instancedFrom(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.95, flatShading: true }), rockItems);
+    const bushItems = [];
+    for (let i = 0; i < 150; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.8;
+      const ez = (Math.random() - 0.5) * FH * 1.8;
+      if (isBlockedRel(ex, ez)) continue;
+      const s = 0.4 + Math.random() * 0.5;
+      bushItems.push({ x: AX + ex, y: s * 0.6, z: ez, s, ry: Math.random() * 6, tint: 0.8 + Math.random() * 0.4 });
     }
-    // stumps + fallen logs — reads as a real woodland floor
-    const barkMat = new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 });
-    for (let i = 0; i < 9; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.6;
-      const ez = (Math.random() - 0.5) * FH * 1.6;
-      if (inClearing(ex, ez)) continue;
-      const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.32, 0.36, 9), barkMat);
-      stump.position.set(AX + ex, 0.18, ez); stump.castShadow = true; stump.receiveShadow = true;
-      areaGroup.add(stump);
-    }
-    for (let i = 0; i < 7; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.5;
-      const ez = (Math.random() - 0.5) * FH * 1.5;
-      if (inClearing(ex, ez)) continue;
-      const len = 2 + Math.random() * 1.6;
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, len, 8), barkMat);
-      log.rotation.z = Math.PI / 2;
-      log.rotation.y = Math.random() * Math.PI;
-      log.position.set(AX + ex, 0.18, ez); log.castShadow = true; log.receiveShadow = true;
-      areaGroup.add(log);
-    }
-    // faint bioluminescent mushrooms — sci-fi accent in the shade
-    const shroomCap = new THREE.MeshStandardMaterial({ color: 0x5adfff, emissive: 0x38c8f0, emissiveIntensity: 1.1, roughness: 0.5 });
-    const shroomStem = new THREE.MeshStandardMaterial({ color: 0xd8e2d0, roughness: 0.9 });
-    for (let i = 0; i < 14; i += 1) {
+    instancedFrom(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, flatShading: true }), bushItems);
+    const stumpItems = [];
+    for (let i = 0; i < 22; i += 1) {
       const ex = (Math.random() - 0.5) * FH * 1.7;
       const ez = (Math.random() - 0.5) * FH * 1.7;
-      if (inClearing(ex, ez)) continue;
+      if (isBlockedRel(ex, ez)) continue;
+      stumpItems.push({ x: AX + ex, y: 0.17, z: ez, s: 0.8 + Math.random() * 0.5, ry: Math.random() * 6 });
+    }
+    instancedFrom(new THREE.CylinderGeometry(0.24, 0.32, 0.36, 8), new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 }), stumpItems);
+    // fallen logs (few, individual)
+    const barkMat = new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 });
+    for (let i = 0; i < 12; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.6;
+      const ez = (Math.random() - 0.5) * FH * 1.6;
+      if (isBlockedRel(ex, ez)) continue;
+      const len = 2 + Math.random() * 1.8;
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, len, 7), barkMat);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = Math.random() * Math.PI;
+      log.position.set(AX + ex, 0.18, ez);
+      log.castShadow = true; log.receiveShadow = true;
+      areaGroup.add(log);
+    }
+    // bioluminescent mushrooms (instanced caps + stems)
+    const capItems = [];
+    const stemItems = [];
+    for (let i = 0; i < 26; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.8;
+      const ez = (Math.random() - 0.5) * FH * 1.8;
+      if (isBlockedRel(ex, ez)) continue;
       for (let j = 0; j < 3; j += 1) {
         const s = 0.5 + Math.random() * 0.8;
         const ox = (Math.random() - 0.5) * 0.7;
         const oz = (Math.random() - 0.5) * 0.7;
-        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * s, 0.03 * s, 0.14 * s, 6), shroomStem);
-        stem.position.set(AX + ex + ox, 0.07 * s, ez + oz);
-        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.07 * s, 0.08 * s, 8), shroomCap);
-        cap.position.set(AX + ex + ox, 0.16 * s, ez + oz);
-        areaGroup.add(stem, cap);
+        stemItems.push({ x: AX + ex + ox, y: 0.07 * s, z: ez + oz, s });
+        capItems.push({ x: AX + ex + ox, y: 0.16 * s, z: ez + oz, s });
       }
     }
-    // abandoned supply crates + low barriers: hard cover for the firefight
+    instancedFrom(new THREE.CylinderGeometry(0.02, 0.03, 0.14, 5), new THREE.MeshStandardMaterial({ color: 0xd8e2d0, roughness: 0.9 }), stemItems, { shadow: false });
+    instancedFrom(new THREE.ConeGeometry(0.07, 0.08, 7), new THREE.MeshStandardMaterial({ color: 0x5adfff, emissive: 0x38c8f0, emissiveIntensity: 1.1, roughness: 0.5 }), capItems, { shadow: false });
+
+    // scattered field cover (crates + barriers) between the POIs
     const crateMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6, metalness: 0.2 });
     const barrierMat = new THREE.MeshStandardMaterial({ map: metalTex, roughness: 0.5, metalness: 0.4 });
     let cover = 0, coverTries = 0;
-    while (cover < 8 && coverTries < 60) {
+    while (cover < 12 && coverTries < 90) {
       coverTries += 1;
       const a = Math.random() * Math.PI * 2;
-      const r = 6.5 + Math.random() * 14;
+      const r = 7 + Math.random() * (FH - 14);
       const ex = Math.cos(a) * r;
       const ez = Math.sin(a) * r;
-      if (inClearing(ex, ez)) continue;
+      if (isBlockedRel(ex, ez)) continue;
       if (cover % 2 === 0) {
         const box = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.1, 1.25), crateMat);
         box.position.set(AX + ex, 0.55, ez);
@@ -535,7 +827,6 @@ export function createWorld(scene, hooks = {}) {
         areaGroup.add(box); solids.push(box);
         colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, 0.55, ez), new THREE.Vector3(1.5, 1.1, 1.5)));
       } else {
-        // axis-aligned so the AABB collider matches the visual exactly
         const alongX = Math.random() < 0.5;
         const bar = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 2.4 : 0.35, 0.95, alongX ? 0.35 : 2.4), barrierMat);
         bar.position.set(AX + ex, 0.47, ez);
@@ -545,6 +836,20 @@ export function createWorld(scene, hooks = {}) {
       }
       cover += 1;
     }
+
+    // drifting spores/pollen — subtle life in the air
+    const sporeCount = 260;
+    const positions = new Float32Array(sporeCount * 3);
+    for (let i = 0; i < sporeCount; i += 1) {
+      positions[i * 3] = AX + (Math.random() - 0.5) * FH * 1.8;
+      positions[i * 3 + 1] = 0.4 + Math.random() * 4.5;
+      positions[i * 3 + 2] = (Math.random() - 0.5) * FH * 1.8;
+    }
+    const sporeGeo = new THREE.BufferGeometry();
+    sporeGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+    sporesRef = new THREE.Points(sporeGeo, new THREE.PointsMaterial({ color: 0xe8ffe8, size: 0.06, transparent: true, opacity: 0.45, sizeAttenuation: true }));
+    areaGroup.add(sporesRef);
+
     // extract pad (return to base)
     areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.05, 8).rotateX(-Math.PI / 2));
     areaGroup.add(col(1.7, 0.1, mint, AX, 0.06, 8, 28));
@@ -552,6 +857,9 @@ export function createWorld(scene, hooks = {}) {
   })();
   interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, 8), radius: 2.6 });
 
+  // Articulated soldier: limbs hang from hip/shoulder pivots so they can be
+  // swung procedurally while the enemy walks. Head parts are tagged for
+  // headshot detection.
   function buildSoldier(suitColor) {
     const g = new THREE.Group();
     const suit = new THREE.MeshStandardMaterial({ color: suitColor, roughness: 0.45, metalness: 0.5 });
@@ -559,13 +867,43 @@ export function createWorld(scene, hooks = {}) {
     const visorM = new THREE.MeshStandardMaterial({ color: 0xff5a5a, emissive: 0xff3a3a, emissiveIntensity: 0.8, roughness: 0.3 });
     const torsoM = new THREE.Mesh(new THREE.CapsuleGeometry(0.27, 0.42, 6, 14), suit); torsoM.position.y = 1.3;
     const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 18, 14), plate); head.position.y = 1.86;
+    head.userData.part = "head";
     const visor = new THREE.Mesh(new THREE.SphereGeometry(0.14, 14, 10), visorM); visor.position.set(0, 1.86, 0.1); visor.scale.set(1, 0.55, 0.6);
+    visor.userData.part = "head";
     const sL = new THREE.Mesh(new THREE.SphereGeometry(0.16, 12, 10), plate); sL.position.set(-0.34, 1.5, 0);
     const sR = sL.clone(); sR.position.x = 0.34;
-    const limb = (r, len, px, py) => { const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 10), suit); m.position.set(px, py, 0); return m; };
-    for (const part of [torsoM, head, visor, sL, sR, limb(0.085, 0.42, -0.4, 1.18), limb(0.085, 0.42, 0.4, 1.18), limb(0.12, 0.5, -0.15, 0.45), limb(0.12, 0.5, 0.15, 0.45)]) {
-      part.castShadow = true; g.add(part);
-    }
+    for (const part of [torsoM, head, visor, sL, sR]) { part.castShadow = true; g.add(part); }
+    // limb pivots: mesh hangs below the joint so rotation.x swings it
+    const limbPivot = (r, len, px, py) => {
+      const pivot = new THREE.Group();
+      pivot.position.set(px, py, 0);
+      const m = new THREE.Mesh(new THREE.CapsuleGeometry(r, len, 5, 10), suit);
+      m.position.y = -(len / 2 + r * 0.5);
+      m.castShadow = true;
+      pivot.add(m);
+      g.add(pivot);
+      return pivot;
+    };
+    const rig = {
+      armL: limbPivot(0.085, 0.42, -0.4, 1.5),
+      armR: limbPivot(0.085, 0.42, 0.4, 1.5),
+      legL: limbPivot(0.12, 0.5, -0.15, 0.85),
+      legR: limbPivot(0.12, 0.5, 0.15, 0.85),
+    };
+    // small rifle held across the chest (drawn to the muzzle flash point)
+    const gunGrp = new THREE.Group();
+    const gunBody = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.1, 0.62), new THREE.MeshStandardMaterial({ color: 0x22262c, roughness: 0.5, metalness: 0.6 }));
+    gunBody.castShadow = true;
+    gunGrp.add(gunBody);
+    const flash = new THREE.Mesh(new THREE.SphereGeometry(0.09, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffd070, transparent: true, opacity: 0.95 }));
+    flash.position.z = 0.38;
+    flash.visible = false;
+    gunGrp.add(flash);
+    gunGrp.position.set(0.12, 1.32, 0.3);
+    gunGrp.rotation.x = -0.08;
+    g.add(gunGrp);
+    g.userData.rig = rig;
+    g.userData.flash = flash;
     return g;
   }
   function makeEnemy(x, z, hp, heavy = false) {
@@ -578,6 +916,13 @@ export function createWorld(scene, hooks = {}) {
       dying: false, deathT: 0,
       speed: heavy ? 1.3 : 2.0 + Math.random() * 0.8,
       nextShot: state.time + 1.2 + Math.random() * 1.6, // grace period after spawning
+      rig: g.userData.rig,
+      flashMesh: g.userData.flash,
+      walkPhase: Math.random() * 6, // drives the limb swing
+      strafePhase: Math.random() * 6, // zig-zag approach offset
+      strafeDir: Math.random() < 0.5 ? 1 : -1,
+      stagger: 0, // brief pause after taking a hit
+      flashT: 0, // muzzle flash visibility timer
     };
     const bodies = [];
     g.traverse((m) => { if (m.isMesh) { m.userData.type = "enemy"; m.userData.enemy = ctrl; bodies.push(m); } });
@@ -599,8 +944,11 @@ export function createWorld(scene, hooks = {}) {
     while (placed < n && tries < n * 10) {
       tries += 1;
       const a = Math.random() * Math.PI * 2;
-      const r = 12 + Math.random() * 14;
-      makeEnemy(Math.cos(a) * r, Math.sin(a) * r, hp);
+      const r = 12 + Math.random() * 16;
+      const ex = Math.cos(a) * r;
+      const ez = Math.sin(a) * r;
+      if (isBlockedRel(ex, ez)) continue; // don't spawn inside a POI
+      makeEnemy(ex, ez, hp);
       placed += 1;
     }
     // every 3rd wave a heavy walks in with the squad
@@ -689,6 +1037,7 @@ export function createWorld(scene, hooks = {}) {
   function damageEnemy(ctrl, dmg) {
     if (!ctrl || !ctrl.alive) return false;
     ctrl.health -= dmg; ctrl.hitFlash = 1;
+    ctrl.stagger = Math.max(ctrl.stagger || 0, ctrl.heavy ? 0.08 : 0.18); // hit reaction
     if (ctrl.health <= 0) {
       ctrl.alive = false;
       ctrl.dying = true; // fall over, then sink away (animated in update)
@@ -707,9 +1056,16 @@ export function createWorld(scene, hooks = {}) {
   }
   function enterArea1() {
     scene.fog = forestFog; scene.background = forestBg;
-    // warm daylight over the forest, greener bounce light
+    // warm daylight over the forest, greener bounce light; the sun follows the
+    // player into the far-away area so shadows actually cover it
     key.color.set(0xffe9c4); key.intensity = 3.3;
+    key.position.set(AX + 16, 30, 14);
+    key.target.position.set(AX, 0, 0);
+    const sc = key.shadow.camera;
+    sc.left = -48; sc.right = 48; sc.top = 48; sc.bottom = -48; sc.far = 110;
+    sc.updateProjectionMatrix();
     hemi.color.set(0xdcecff); hemi.groundColor.set(0x4a6a3c); hemi.intensity = 1.25;
+    for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
     areaGroup.visible = true;
     state.inArea = true;
     state.wave = 1;
@@ -719,6 +1075,11 @@ export function createWorld(scene, hooks = {}) {
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
     key.color.set(0xfff4e0); key.intensity = 2.8;
+    key.position.set(8, 20, 12);
+    key.target.position.set(0, 0, 0);
+    const sc = key.shadow.camera;
+    sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.far = 70;
+    sc.updateProjectionMatrix();
     hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
     areaGroup.visible = false;
     state.inArea = false;
@@ -777,22 +1138,84 @@ export function createWorld(scene, hooks = {}) {
         if (state.inArea) {
           const dx = playerPos.x - e.group.position.x;
           const dz = playerPos.z - e.group.position.z;
-          const dist = Math.hypot(dx, dz);
-          if (dist > 9) { // advance to firing range
-            const step = e.speed * dt;
-            e.group.position.x += (dx / dist) * step;
-            e.group.position.z += (dz / dist) * step;
-            // stay inside the forest bounds
+          const dist = Math.max(0.001, Math.hypot(dx, dz));
+          const ux = dx / dist;
+          const uz = dz / dist;
+          e.stagger = Math.max(0, e.stagger - dt);
+          let moveX = 0;
+          let moveZ = 0;
+          if (e.stagger <= 0) {
+            if (dist > 9) { // weaving advance toward firing range
+              const weave = Math.sin(state.time * 1.7 + e.strafePhase) * 0.55 * e.strafeDir;
+              moveX = ux - uz * weave;
+              moveZ = uz + ux * weave;
+            } else if (dist < 5.5) { // too close: back off at an angle
+              moveX = -ux * 0.7 - uz * 0.4 * e.strafeDir;
+              moveZ = -uz * 0.7 + ux * 0.4 * e.strafeDir;
+            } else { // hold range, strafe sideways
+              const weave = Math.sin(state.time * 1.2 + e.strafePhase) * e.strafeDir;
+              moveX = -uz * weave * 0.7;
+              moveZ = ux * weave * 0.7;
+            }
+          }
+          // separation: never bunch into one blob
+          for (const o of enemies) {
+            if (o === e || !o.alive) continue;
+            const sx = e.group.position.x - o.group.position.x;
+            const sz = e.group.position.z - o.group.position.z;
+            const d2 = sx * sx + sz * sz;
+            if (d2 > 0.0001 && d2 < 2.6) {
+              const d = Math.sqrt(d2);
+              moveX += (sx / d) * 0.8;
+              moveZ += (sz / d) * 0.8;
+            }
+          }
+          const moveMag = Math.hypot(moveX, moveZ);
+          if (moveMag > 0.03) {
+            const step = (e.speed * dt) / Math.max(1, moveMag);
+            e.group.position.x += moveX * step;
+            e.group.position.z += moveZ * step;
             e.group.position.x = Math.min(AX + FH - 1.5, Math.max(AX - FH + 1.5, e.group.position.x));
             e.group.position.z = Math.min(FH - 1.5, Math.max(-FH + 1.5, e.group.position.z));
           }
-          if (state.time >= e.nextShot) {
-            e.nextShot = state.time + 1.5 + Math.random();
-            if (dist < 30) enemyFire(e, playerState, dist);
+          // procedural walk cycle driven by actual movement
+          if (e.rig) {
+            if (moveMag > 0.03 && e.stagger <= 0) {
+              e.walkPhase += dt * (5.5 + e.speed * 2.5);
+              const sw = Math.sin(e.walkPhase) * 0.55;
+              e.rig.legL.rotation.x = sw;
+              e.rig.legR.rotation.x = -sw;
+              e.rig.armL.rotation.x = -sw * 0.6;
+              e.rig.armR.rotation.x = sw * 0.6;
+            } else { // relax limbs when standing/staggered
+              for (const p of [e.rig.legL, e.rig.legR, e.rig.armL, e.rig.armR]) {
+                p.rotation.x *= Math.max(0, 1 - dt * 10);
+              }
+            }
+          }
+          if (state.time >= e.nextShot && e.stagger <= 0) {
+            e.nextShot = state.time + (e.heavy ? 1.9 : 1.5) + Math.random();
+            if (dist < 32) {
+              enemyFire(e, playerState, dist);
+              e.flashT = 0.07;
+              if (e.flashMesh) e.flashMesh.visible = true;
+            }
+          }
+          if (e.flashT > 0) {
+            e.flashT -= dt;
+            if (e.flashT <= 0 && e.flashMesh) e.flashMesh.visible = false;
           }
         }
       }
       if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
+    }
+    // ambient forest life: drifting spores + water shimmer
+    if (state.inArea) {
+      if (sporesRef) {
+        sporesRef.rotation.y += dt * 0.006;
+        sporesRef.position.y = Math.sin(state.time * 0.25) * 0.35;
+      }
+      if (waterMat) waterMat.opacity = 0.84 + Math.sin(state.time * 0.7) * 0.05;
     }
     // death-burst shards: fly, tumble, fade
     for (let i = bursts.length - 1; i >= 0; i -= 1) {
@@ -867,8 +1290,8 @@ export function createWorld(scene, hooks = {}) {
   }
 
   return {
-    ROOM, colliders, solids, targets, interactables, state,
-    damageTarget, damageEnemy, getHittables, update, spawnPlayerTracer,
+    ROOM, colliders, solids, targets, interactables, state, enemies, loot, supplyCrates,
+    damageTarget, damageEnemy, getHittables, update, spawnPlayerTracer, openSupplyCrate,
     enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ,
   };
 }

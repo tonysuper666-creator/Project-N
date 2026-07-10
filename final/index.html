@@ -19,23 +19,42 @@
   <body>
     <!-- ===== In-game HUD ===== -->
     <div id="hud">
-      <div class="title">Project N — M1 雏形 <span id="buildVer" class="ver">…</span> <span id="fps" class="ver"></span></div>
+      <div class="title">PROJECT N <span id="buildVer" class="ver">…</span> <span id="fps" class="ver"></span></div>
       <div class="hint">WASD 移动 · 鼠标瞄准 · 左键攻击 · E 交互 · 1/2/3 切换武器 · R 换弹 · Q 医疗针剂 · 按住 Shift 冲刺 · Ctrl 蹲 · Space 跳 · F8 全屏</div>
     </div>
 
     <div id="vignette" aria-hidden="true"></div>
-    <div id="crosshair" aria-hidden="true"><span></span></div>
+    <!-- dynamic crosshair: gap breathes with the live spread cone (--gap) -->
+    <div id="crosshair" aria-hidden="true">
+      <i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="ch dot"></i>
+    </div>
     <div id="hitmarker" aria-hidden="true"></div>
     <div id="killBanner" aria-hidden="true"><span class="kb-icon">💀</span><span class="kb-text">击杀</span></div>
     <div id="prompt"></div>
 
+    <!-- top-right: rotating minimap + kill feed -->
+    <div id="mapWrap" aria-hidden="true">
+      <canvas id="minimap" width="176" height="176"></canvas>
+      <div id="killFeed"></div>
+    </div>
+
+    <!-- bottom-left: vitals -->
+    <div id="vitals">
+      <div class="v-top">
+        <span id="level" class="lvChip">Lv.1</span>
+        <span id="sprint" class="sprintChip"></span>
+      </div>
+      <div class="v-hp">
+        <span id="health" class="hpNum">100</span>
+        <div id="healthBar"><div id="healthFill"></div></div>
+      </div>
+    </div>
+
+    <!-- bottom-right: weapon status -->
     <div id="stats">
-      <div class="row"><span class="label">等级</span><span id="level">Lv.1</span></div>
-      <div class="row"><span class="label">击杀</span><span id="score">0</span></div>
-      <div class="row"><span class="label">武器</span><span id="weapon">步枪</span></div>
-      <div class="row"><span class="label">冲刺</span><span id="sprint">关</span></div>
-      <div class="row"><span class="label">弹药</span><span id="ammo">30 / 150</span></div>
-      <div class="row"><span class="label">生命</span><span id="health">100</span></div>
+      <div class="w-kills"><span class="label">击杀</span><span id="score">0</span></div>
+      <div class="w-name" id="weapon">步枪</div>
+      <div class="w-ammo" id="ammo">30 / 150</div>
     </div>
 
     <div id="missionTracker" aria-hidden="true"></div>

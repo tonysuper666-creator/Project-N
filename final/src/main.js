@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710002";
+const BUILD_VERSION = "260710003";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -48,11 +48,18 @@ const vmKey = new THREE.DirectionalLight(0xfff4e0, 2.0);
 vmKey.position.set(0.4, 1, 0.8);
 viewScene.add(vmKey);
 
+// Per-run haul, shown in the extraction summary.
+const runStats = { kills: 0, coins: 0, xp: 0, waves: 0, loot: {} };
+function resetRunStats() {
+  runStats.kills = 0; runStats.coins = 0; runStats.xp = 0; runStats.waves = 0; runStats.loot = {};
+}
+
 const world = createWorld(scene, {
   // Walking over a loot orb in Area 1 picks it up into the account inventory.
   onLoot(drop) {
     account.addItem(drop.id, drop.qty);
     audio.pickup();
+    runStats.loot[drop.id] = (runStats.loot[drop.id] || 0) + drop.qty;
     const it = ITEM_DB[drop.id];
     ui.toast(`拾取：${it ? it.name : drop.id}${drop.qty > 1 ? " ×" + drop.qty : ""}`);
     // advance accepted collect missions (e.g. data chips)
@@ -79,6 +86,7 @@ const world = createWorld(scene, {
   onWaveCleared(wave) {
     const bonus = 80 + wave * 40;
     const ups = account.award(bonus, 30);
+    runStats.coins += bonus; runStats.xp += 30; runStats.waves += 1;
     ui.toast(`第 ${wave} 波已清剿 · 奖励 ◈${bonus}，下一波即将来袭`);
     if (ups > 0) celebrateLevelUp();
     for (const m of recordProgress("wave")) {
@@ -130,23 +138,50 @@ function closeChar(resume = true) {
 document.getElementById("charClose").addEventListener("click", () => closeChar(true));
 
 const killBanner = document.getElementById("killBanner");
-function showKill() {
+function showKill(headshot = false) {
   audio.kill();
+  killBanner.querySelector(".kb-text").textContent = headshot ? "爆头击杀" : "击杀";
+  killBanner.classList.toggle("head", headshot);
   killBanner.classList.remove("show");
   void killBanner.offsetWidth;
   killBanner.classList.add("show");
 }
 
+// Kill feed (top right): short-lived rows, newest on top.
+const killFeed = document.getElementById("killFeed");
+function pushKillFeed(text) {
+  if (!killFeed) return;
+  const row = document.createElement("div");
+  row.className = "kf-row";
+  row.textContent = text;
+  killFeed.prepend(row);
+  while (killFeed.children.length > 5) killFeed.lastChild.remove();
+  setTimeout(() => { row.classList.add("out"); setTimeout(() => row.remove(), 400); }, 3600);
+}
+
 const weapons = createWeapons(camera, scene, world, player, {
-  onHitmarker(killed, kind) {
+  onHitmarker(killed, kind, extra = {}) {
     // retrigger the CSS flash animation
     hitmarker.classList.remove("show");
     void hitmarker.offsetWidth;
     hitmarker.classList.add("show");
+    if (extra.headshot) audio.headshot();
     if (killed) {
-      showKill();
-      if (kind === "enemy") onEnemyKill();
+      showKill(extra.headshot);
+      if (kind === "enemy") onEnemyKill(extra);
     }
+  },
+  // Apex-style floating damage numbers at the hit point.
+  onDamageNumber(point, dmg, headshot) {
+    const v = point.clone().project(camera);
+    if (v.z > 1) return; // behind the camera
+    const el = document.createElement("div");
+    el.className = "dmgNum" + (headshot ? " head" : "");
+    el.textContent = String(Math.round(dmg));
+    el.style.left = `${(v.x * 0.5 + 0.5) * 100}%`;
+    el.style.top = `${(-v.y * 0.5 + 0.5) * 100 - 3}%`;
+    document.body.appendChild(el);
+    setTimeout(() => el.remove(), 650);
   },
 }, viewCamera);
 
@@ -154,10 +189,14 @@ const weapons = createWeapons(camera, scene, world, player, {
 // toward kill missions, and bumps the persistent kill stat.
 const KILL_COINS = 25;
 const KILL_XP = 20;
-function onEnemyKill() {
+function onEnemyKill(extra = {}) {
   const d = account.getData();
   if (d) { d.stats.kills += 1; account.save(d); }
-  const ups = account.award(KILL_COINS, KILL_XP);
+  const bounty = extra.heavy ? KILL_COINS * 4 : KILL_COINS;
+  const xp = extra.heavy ? KILL_XP * 3 : KILL_XP;
+  const ups = account.award(bounty, xp);
+  runStats.kills += 1; runStats.coins += bounty; runStats.xp += xp;
+  pushKillFeed(`${extra.headshot ? "☠ 爆头 " : ""}击杀 ${extra.heavy ? "重型单位 +◈" + bounty : "训练兵 +◈" + bounty}`);
   if (ups > 0) celebrateLevelUp();
   for (const m of recordProgress("kill")) {
     ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
@@ -194,8 +233,10 @@ const ui = createUI({
   onResume: () => requestLock(),
   onDeploy: (area) => {
     world.enterArea1();
+    resetRunStats();
     player.state.pos.copy(world.areaSpawn);
     player.state.vy = 0;
+    audio.setAmbient("forest");
     const d = account.getData();
     if (d) { d.stats.runs += 1; account.save(d); }
     ui.toast(`已进入 ${area.name} · 走到撤离点按 E 返回`);
@@ -267,7 +308,18 @@ function interact() {
     world.extract();
     player.state.pos.copy(world.baseSpawn);
     player.state.vy = 0;
-    ui.toast("已撤离回基地");
+    audio.setAmbient("base");
+    ui.showSummary(runStats);
+    document.exitPointerLock?.();
+    return;
+  }
+  if (activeInteractable.action === "supply") {
+    if (world.openSupplyCrate(activeInteractable.id)) {
+      audio.pickup();
+      ui.toast("补给箱已开启");
+    } else {
+      ui.toast("这个补给箱已经空了");
+    }
     return;
   }
   if (activeInteractable.action === "ammo") {
@@ -380,9 +432,13 @@ function onPointerLockChange() {
   const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden") || dead;
   overlay.classList.toggle("hidden", inputState.locked || panelOpen);
   crosshair.style.display = inputState.locked ? "block" : "none";
+  document.body.classList.toggle("playing", inputState.locked); // shows the minimap
   if (inputState.locked) {
     refreshMissionHUD(); // pick up level/mission changes made in menus
     syncLoadout(); // equipment may have changed in the backpack
+    audio.setAmbient(world.state.inArea ? "forest" : "base");
+  } else {
+    audio.setAmbient(null);
   }
   if (!inputState.locked) {
     weapons.triggerUp();
@@ -418,13 +474,110 @@ window.addEventListener("resize", () => {
 });
 
 // --- HUD ----------------------------------------------------------------
+const healthFill = document.getElementById("healthFill");
 function updateHUD() {
   scoreEl.textContent = String(world.state.score);
   const hud = weapons.getHUD();
   weaponEl.textContent = hud.name;
   ammoEl.textContent = hud.ammoText;
-  sprintEl.textContent = player.state.sprinting ? "开" : "关";
-  healthEl.textContent = `${Math.round(player.state.health)} / ${player.state.maxHealth}`;
+  sprintEl.textContent = player.state.sprinting ? "疾跑" : "";
+  healthEl.textContent = `${Math.round(player.state.health)}`;
+  if (healthFill) {
+    const pct = (player.state.health / player.state.maxHealth) * 100;
+    healthFill.style.width = `${pct}%`;
+    healthFill.classList.toggle("low", pct < 30);
+  }
+  // dynamic crosshair: the gap breathes with the actual spread cone
+  if (crosshair && weapons.getSpread) {
+    crosshair.style.setProperty("--gap", `${(5 + weapons.getSpread() * 2400).toFixed(1)}px`);
+  }
+}
+
+// --- Footsteps ------------------------------------------------------------
+let strideAcc = 0;
+function updateFootsteps(dt) {
+  const ps = player.state;
+  if (!ps.grounded || ps.speed2D < 1.2) { strideAcc = 0; return; }
+  strideAcc += ps.speed2D * dt;
+  const stride = ps.sprinting ? 3.0 : 2.3; // metres per step
+  if (strideAcc >= stride) {
+    strideAcc = 0;
+    audio.footstep(ps.crouching ? "crouch" : ps.sprinting ? "sprint" : "walk");
+  }
+}
+
+// --- Minimap (rotating, player-up, COD style) ------------------------------
+const minimap = document.getElementById("minimap");
+const mmCtx = minimap ? minimap.getContext("2d") : null;
+function drawMinimap() {
+  if (!mmCtx) return;
+  const W = minimap.width;
+  const cx = W / 2;
+  const inArea = world.state.inArea;
+  const range = inArea ? 46 : 20; // metres of world shown edge-to-edge/2
+  const scale = (cx - 7) / range;
+  const px = player.state.pos.x;
+  const pz = player.state.pos.z;
+  const cy = cx;
+  const cosY = Math.cos(player.state.yaw);
+  const sinY = Math.sin(player.state.yaw);
+  const toMap = (wx, wz) => {
+    const dx = wx - px;
+    const dz = wz - pz;
+    return [cx + (dx * cosY - dz * sinY) * scale, cy + (dx * sinY + dz * cosY) * scale];
+  };
+  mmCtx.clearRect(0, 0, W, W);
+  mmCtx.save();
+  mmCtx.beginPath();
+  mmCtx.arc(cx, cy, cx - 2, 0, 6.2832);
+  mmCtx.clip();
+  mmCtx.fillStyle = "rgba(5, 12, 18, 0.78)";
+  mmCtx.fillRect(0, 0, W, W);
+  const dot = (wx, wz, color, r) => {
+    const [mx, my] = toMap(wx, wz);
+    mmCtx.fillStyle = color;
+    mmCtx.beginPath();
+    mmCtx.arc(mx, my, r, 0, 6.2832);
+    mmCtx.fill();
+  };
+  if (inArea) {
+    dot(world.areaSpawn.x, 8, "#6affc0", 5); // extract pad
+    for (const c of world.supplyCrates) if (!c.opened) dot(c.pos.x, c.pos.z, "#46dfa0", 3);
+    for (const l of world.loot) dot(l.orb.position.x, l.orb.position.z, "#ffd23f", 2.4);
+    for (const e of world.enemies) {
+      if (!e.alive) continue;
+      dot(e.group.position.x, e.group.position.z, e.heavy ? "#ff5030" : "#ff8a6a", e.heavy ? 4.4 : 3);
+    }
+  } else {
+    for (const it of world.interactables) {
+      if (it.pos.x > 100) continue; // area-side markers
+      dot(it.pos.x, it.pos.z, "#59c8ff", 3);
+    }
+  }
+  // player arrow (always centred, facing up)
+  mmCtx.fillStyle = "#eaf6ff";
+  mmCtx.beginPath();
+  mmCtx.moveTo(cx, cy - 6);
+  mmCtx.lineTo(cx - 4.4, cy + 4.6);
+  mmCtx.lineTo(cx + 4.4, cy + 4.6);
+  mmCtx.closePath();
+  mmCtx.fill();
+  mmCtx.restore();
+  mmCtx.strokeStyle = "rgba(127, 209, 255, 0.55)";
+  mmCtx.lineWidth = 1.5;
+  mmCtx.beginPath();
+  mmCtx.arc(cx, cy, cx - 2, 0, 6.2832);
+  mmCtx.stroke();
+}
+
+// --- Dynamic resolution ---------------------------------------------------
+let resScale = 1;
+function applyResScale() {
+  const pr = Math.min(window.devicePixelRatio, 2) * resScale;
+  renderer.setPixelRatio(pr);
+  composer.setPixelRatio(pr);
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
 }
 
 // --- Main loop ----------------------------------------------------------
@@ -441,6 +594,8 @@ function animate(now) {
     weapons.update(dt, now / 1000);
     world.update(dt, player.state);
     updateInteraction();
+    updateFootsteps(dt);
+    drawMinimap();
     // the base slowly patches you up; out in the field you need med stims
     if (!world.state.inArea && !dead && player.state.health < player.state.maxHealth) {
       player.state.health = Math.min(player.state.maxHealth, player.state.health + 4 * dt);
@@ -464,9 +619,13 @@ function animate(now) {
 
   fpsFrames += 1;
   if (now - fpsLast >= 500) {
-    if (fpsEl) fpsEl.textContent = `${Math.round((fpsFrames * 1000) / (now - fpsLast))} FPS`;
+    const fps = Math.round((fpsFrames * 1000) / (now - fpsLast));
+    if (fpsEl) fpsEl.textContent = `${fps} FPS`;
     fpsFrames = 0;
     fpsLast = now;
+    // dynamic resolution: trade pixels for frame rate on weak GPUs
+    if (fps < 40 && resScale > 0.55) { resScale = Math.max(0.55, resScale - 0.1); applyResScale(); }
+    else if (fps > 56 && resScale < 1) { resScale = Math.min(1, resScale + 0.05); applyResScale(); }
   }
   requestAnimationFrame(animate);
 }

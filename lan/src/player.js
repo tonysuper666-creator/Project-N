@@ -62,6 +62,11 @@ export function createPlayer(camera, world) {
     state.pitch = clamp(state.pitch + amount, -1.5, 1.5);
   }
 
+  // Horizontal recoil jitter (spray drift).
+  function addYaw(amount) {
+    state.yaw += amount;
+  }
+
   // Called from the Space keydown event. Driving the jump from the event
   // (instead of polling keys.has("Space")) means a lost keyup can never
   // leave Space "stuck" and disable future jumps.
@@ -193,5 +198,5 @@ export function createPlayer(camera, world) {
     camera.rotation.x = state.pitch;
   }
 
-  return { state, keys, look, addPitch, queueJump, update };
+  return { state, keys, look, addPitch, addYaw, queueJump, update };
 }
