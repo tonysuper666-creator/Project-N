@@ -3,6 +3,7 @@ import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from ".
 import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=DEV";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { audio } from "./audio.js?v=DEV";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=DEV";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -11,6 +12,9 @@ import { audio } from "./audio.js?v=DEV";
 export function createWorld(scene, hooks = {}) {
   const ROOM = 16;
   const HEIGHT = 7.5;
+
+  // Start downloading the rigged enemy model now so it's ready by deploy time.
+  loadCharacter().catch(() => {}); // falls back to procedural soldiers if it fails
 
   scene.background = new THREE.Color(0x0c1622);
   scene.fog = new THREE.Fog(0x0c1622, 36, 92);
@@ -906,9 +910,11 @@ export function createWorld(scene, hooks = {}) {
     g.userData.flash = flash;
     return g;
   }
+  // invisible hit material shared by all enemy hitboxes
+  const hitMat = new THREE.MeshBasicMaterial({ visible: false });
+
   function makeEnemy(x, z, hp, heavy = false) {
-    const g = buildSoldier(heavy ? 0xb03a3a : 0xc8d2dc); // heavies wear dark red
-    if (heavy) g.scale.setScalar(1.45);
+    const g = new THREE.Group();
     g.position.set(AX + x, 0, z);
     const ctrl = {
       group: g, health: hp, maxHealth: hp, alive: true, hitFlash: 0, phase: Math.random() * 6,
@@ -917,17 +923,46 @@ export function createWorld(scene, hooks = {}) {
       speed: heavy ? 1.5 : 2.4 + Math.random() * 0.9, // a touch faster so they close the gap
       engaged: false, // flips true once within detection range (then they fire)
       nextShot: state.time + 3.5 + Math.random() * 3, // long grace: time to get bearings
-      rig: g.userData.rig,
-      flashMesh: g.userData.flash,
-      walkPhase: Math.random() * 6, // drives the limb swing
       strafePhase: Math.random() * 6, // zig-zag approach offset
       strafeDir: Math.random() < 0.5 ? 1 : -1,
       stagger: 0, // brief pause after taking a hit
       flashT: 0, // muzzle flash visibility timer
+      character: null, // rigged GLB instance (preferred)
+      rig: null, // procedural fallback rig
     };
-    const bodies = [];
-    g.traverse((m) => { if (m.isMesh) { m.userData.type = "enemy"; m.userData.enemy = ctrl; bodies.push(m); } });
-    ctrl.bodies = bodies;
+
+    // Prefer the rigged/animated soldier model; fall back to procedural blocks
+    // if the GLB hasn't downloaded yet (keeps the game playable regardless).
+    const scale = heavy ? 1.45 : 1;
+    const inst = characterReady()
+      ? makeCharacter({ tint: heavy ? 0xd06a5a : undefined, emissive: heavy ? 0x902018 : null })
+      : null;
+    if (inst) {
+      inst.group.scale.setScalar(scale);
+      g.add(inst.group);
+      ctrl.character = inst;
+      ctrl.walkAnim = "Idle";
+    } else {
+      const body = buildSoldier(heavy ? 0xb03a3a : 0xc8d2dc);
+      body.scale.setScalar(scale);
+      g.add(body);
+      ctrl.rig = body.userData.rig;
+      ctrl.flashMesh = body.userData.flash;
+      ctrl.walkPhase = Math.random() * 6;
+    }
+
+    // simple invisible hitboxes (fast, reliable) — body + head (2x damage)
+    const bodyBox = new THREE.Mesh(new THREE.BoxGeometry(0.6 * scale, 1.15 * scale, 0.42 * scale), hitMat);
+    bodyBox.position.y = 1.0 * scale;
+    bodyBox.userData = { type: "enemy", enemy: ctrl, part: "body" };
+    g.add(bodyBox);
+    const headBox = new THREE.Mesh(new THREE.BoxGeometry(0.34 * scale, 0.36 * scale, 0.34 * scale), hitMat);
+    headBox.position.y = 1.66 * scale;
+    headBox.userData = { type: "enemy", enemy: ctrl, part: "head" };
+    g.add(headBox);
+    ctrl.bodies = [bodyBox, headBox];
+    ctrl.headBox = headBox;
+
     scene.add(g);
     enemies.push(ctrl);
     return ctrl;
@@ -1043,6 +1078,7 @@ export function createWorld(scene, hooks = {}) {
   function damageEnemy(ctrl, dmg) {
     if (!ctrl || !ctrl.alive) return false;
     ctrl.health -= dmg; ctrl.hitFlash = 1;
+    if (ctrl.character) ctrl.character.flash(); // white-hot hit flash on the model
     ctrl.stagger = Math.max(ctrl.stagger || 0, ctrl.heavy ? 0.08 : 0.18); // hit reaction
     if (ctrl.health <= 0) {
       ctrl.alive = false;
@@ -1184,16 +1220,20 @@ export function createWorld(scene, hooks = {}) {
             e.group.position.x = Math.min(AX + FH - 1.5, Math.max(AX - FH + 1.5, e.group.position.x));
             e.group.position.z = Math.min(FH - 1.5, Math.max(-FH + 1.5, e.group.position.z));
           }
-          // procedural walk cycle driven by actual movement
-          if (e.rig) {
-            if (moveMag > 0.03 && e.stagger <= 0) {
+          // drive locomotion animation from actual movement
+          const movingNow = moveMag > 0.03 && e.stagger <= 0;
+          if (e.character) { // rigged model: blend Idle/Walk/Run clips
+            const want = !movingNow ? "Idle" : dist > 9 ? "Run" : "Walk";
+            if (want !== e.walkAnim) { e.character.play(want); e.walkAnim = want; }
+          } else if (e.rig) { // procedural fallback: swing the limb pivots
+            if (movingNow) {
               e.walkPhase += dt * (5.5 + e.speed * 2.5);
               const sw = Math.sin(e.walkPhase) * 0.55;
               e.rig.legL.rotation.x = sw;
               e.rig.legR.rotation.x = -sw;
               e.rig.armL.rotation.x = -sw * 0.6;
               e.rig.armR.rotation.x = sw * 0.6;
-            } else { // relax limbs when standing/staggered
+            } else {
               for (const p of [e.rig.legL, e.rig.legR, e.rig.armL, e.rig.armR]) {
                 p.rotation.x *= Math.max(0, 1 - dt * 10);
               }
@@ -1222,6 +1262,8 @@ export function createWorld(scene, hooks = {}) {
           }
         }
       }
+      // advance the skeletal animation + fade the hit flash on rigged enemies
+      if (e.character) { e.character.tick(dt); e.character.fadeFlash(dt); }
       if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
     }
     // ambient forest life: drifting spores + water shimmer

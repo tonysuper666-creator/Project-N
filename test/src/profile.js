@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { account, xpNeed } from "./account.js?v=DEV";
 import { ITEM_DB } from "./inventory.js?v=DEV";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=DEV";
 
 // Player profile screen: a rotating 3D character wearing the equipped loadout
 // on the left, account stats + equipment on the right. Runs its own small
@@ -104,11 +105,13 @@ export function createProfile() {
   let scene = null;
   let camera = null;
   let charGroup = null;
+  let charInst = null; // rigged GLB instance (with animation mixer), if loaded
   let raf = 0;
   let open = false;
   let yaw = 0;
   let dragging = false;
   let lastX = 0;
+  const clock = new THREE.Clock();
 
   function ensureRenderer() {
     if (renderer) return;
@@ -117,9 +120,9 @@ export function createProfile() {
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     scene = new THREE.Scene();
-    camera = new THREE.PerspectiveCamera(38, 1, 0.1, 50);
-    camera.position.set(0, 1.25, 3.6);
-    camera.lookAt(0, 1.05, 0);
+    camera = new THREE.PerspectiveCamera(36, 1, 0.1, 50);
+    camera.position.set(0, 1.15, 4.4);
+    camera.lookAt(0, 0.98, 0);
     scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x2a3644, 1.15));
     const key = new THREE.DirectionalLight(0xfff4e0, 2.2);
     key.position.set(2, 4, 3); key.castShadow = true;
@@ -145,8 +148,23 @@ export function createProfile() {
   function rebuildCharacter() {
     const data = account.getData();
     if (!data) return;
-    if (charGroup) { scene.remove(charGroup); charGroup.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
-    charGroup = buildCharacter(data);
+    if (charGroup) { scene.remove(charGroup); charGroup.traverse((o) => { if (o.geometry && o.geometry.dispose) o.geometry.dispose(); }); }
+    charInst = null;
+    charGroup = null;
+    // Prefer the rigged/animated GLB soldier; fall back to procedural geometry
+    // if it hasn't downloaded yet.
+    if (characterReady()) {
+      const eq = data.equipment || {};
+      const inst = makeCharacter({ tint: eq.armor === "nano_armor" ? 0x9fc4e6 : undefined });
+      if (inst) {
+        charInst = inst;
+        charGroup = new THREE.Group();
+        charGroup.add(inst.group);
+        inst.group.rotation.y = Math.PI; // face the camera
+        inst.play("Idle", 0);
+      }
+    }
+    if (!charGroup) charGroup = buildCharacter(data);
     scene.add(charGroup);
   }
 
@@ -160,6 +178,8 @@ export function createProfile() {
 
   function loop() {
     if (!open) return;
+    const dt = Math.min(0.05, clock.getDelta());
+    if (charInst) charInst.tick(dt); // advance the idle animation
     if (!dragging) yaw += 0.006; // idle turntable
     if (charGroup) charGroup.rotation.y = yaw;
     renderer.render(scene, camera);
@@ -211,7 +231,10 @@ export function createProfile() {
     resize();
     rebuildCharacter();
     renderStats();
-    yaw = -0.3;
+    yaw = 0;
+    clock.getDelta(); // reset delta so the first frame isn't a big jump
+    // download the rigged model if needed, then swap it in when ready
+    loadCharacter().then(() => { if (open) rebuildCharacter(); }).catch(() => {});
     raf = requestAnimationFrame(loop);
   }
   function close() {
