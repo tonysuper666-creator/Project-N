@@ -8,7 +8,7 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 // "Soldier" (Mixamo "vanguard") model — see docs/CREDITS.md for attribution;
 // swap the file for a CC0 model later without touching this code.
 
-const MODEL_URL = "./assets/models/Soldier.glb?v=DEV";
+const MODEL_URL = "./assets/models/Soldier.glb?v=260710012";
 const TARGET_HEIGHT = 1.85; // metres — sized so a bodyshot lands centre-mass
 
 let gltfCache = null;

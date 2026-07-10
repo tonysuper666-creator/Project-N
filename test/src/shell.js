@@ -1,4 +1,4 @@
-import { account } from "./account.js?v=DEV";
+import { account } from "./account.js?v=260710012";
 
 // Front-end shell: boot logo animation -> login/register -> home lobby ->
 // enter game. The 3D game (main.js) renders behind these screens and is only
