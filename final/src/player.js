@@ -1,6 +1,13 @@
 import * as THREE from "three";
+import { audio } from "./audio.js?v=DEV";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// Slide tuning.
+const SLIDE_MAX_T = 0.95; // hard cap on slide duration (s)
+const SLIDE_FRICTION = 7.5; // slide speed bleeds off at this rate (units/s²)
+const SLIDE_STEER = 3.2; // how quickly the slide can be curved with WASD
+const SLIDE_COOLDOWN = 0.45; // gap before you can slide again (s)
 
 // First-person controller: mouse-look (yaw/pitch), WASD movement with
 // sprint/crouch/jump + gravity, and AABB collision against the world.
@@ -37,6 +44,11 @@ export function createPlayer(camera, world) {
     swayX: 0, // smoothed look velocity (-1..1), consumed by the view-model
     swayY: 0,
     speed2D: 0, // current horizontal speed (for FOV kick etc.)
+    sliding: false,
+    slideT: 0,
+    slideCooldown: 0,
+    slideDirX: 0,
+    slideDirZ: 0,
   };
 
   const keys = new Set();
@@ -44,9 +56,37 @@ export function createPlayer(camera, world) {
   const right = new THREE.Vector3();
   let lookAccX = 0; // mouse delta accumulated since the last update()
   let lookAccY = 0;
+  let prevCrouch = false; // to detect fresh crouch presses (slide trigger)
+  let jumpBuffer = 0; // remembers a Space press for a short window
+  let coyote = 0; // grace window after leaving the ground where a jump still counts
 
   function eyeHeight() {
-    return 1.62 + (1.05 - 1.62) * state.crouchT;
+    // slide drops a touch lower than a normal crouch
+    const t = state.sliding ? 1.12 : state.crouchT;
+    return 1.62 + (1.05 - 1.62) * t;
+  }
+
+  function startSlide() {
+    state.sliding = true;
+    state.slideT = 0;
+    // lock the slide direction to current motion (fall back to facing)
+    let dx = state.velX;
+    let dz = state.velZ;
+    const m = Math.hypot(dx, dz);
+    if (m < 0.1) { dx = -Math.sin(state.yaw); dz = -Math.cos(state.yaw); }
+    else { dx /= m; dz /= m; }
+    state.slideDirX = dx;
+    state.slideDirZ = dz;
+    const boost = Math.max(state.speed2D * 1.25, state.moveSpeed * 2.0);
+    state.velX = dx * boost;
+    state.velZ = dz * boost;
+    audio.slide?.();
+  }
+
+  function endSlide() {
+    if (!state.sliding) return;
+    state.sliding = false;
+    state.slideCooldown = SLIDE_COOLDOWN;
   }
 
   // Called from the mouse-move handler while pointer is locked.
@@ -67,14 +107,12 @@ export function createPlayer(camera, world) {
     state.yaw += amount;
   }
 
-  // Called from the Space keydown event. Driving the jump from the event
-  // (instead of polling keys.has("Space")) means a lost keyup can never
-  // leave Space "stuck" and disable future jumps.
+  // Called from the Space keydown event. Instead of jumping immediately, we
+  // buffer the press; update() consumes it only when grounded (or within the
+  // coyote window). Buffering keeps a slightly-early press from being eaten,
+  // while the grounded/coyote gate stops mid-air Space from letting you fly.
   function queueJump() {
-    // Space always jumps the instant it's pressed, in any state (no ground /
-    // coyote gating), so a jump input is never eaten.
-    state.vy = state.jumpSpeed;
-    state.grounded = false;
+    jumpBuffer = 0.12;
   }
 
   function resolveCollisions() {
@@ -114,22 +152,29 @@ export function createPlayer(camera, world) {
   }
 
   function update(dt) {
+    state.slideCooldown = Math.max(0, state.slideCooldown - dt);
     const wantCrouch = keys.has("ControlLeft") || keys.has("ControlRight");
-    state.crouching = wantCrouch;
-    state.crouchT += (Number(wantCrouch) - state.crouchT) * Math.min(1, 12 * dt);
+    const crouchPressed = wantCrouch && !prevCrouch; // fresh press this frame
+    prevCrouch = wantCrouch;
+
     const moving =
       keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD");
     state.moving = moving;
-    // Sprint is derived from input every frame (held Shift), decoupled from
-    // jumping: holding Shift in mid-air simply makes sprint engage the moment
-    // you land. Only a *new* Space press while W+Shift are held can be blocked
-    // by keyboard ghosting — and that combo isn't needed to sprint on landing.
     const sprintHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
-    state.sprinting = sprintHeld && !state.crouching && state.grounded && moving;
 
-    let speed = state.moveSpeed;
-    if (state.crouching) speed *= state.crouchMul;
-    if (state.sprinting) speed *= state.sprintMul;
+    // --- slide: tap crouch while sprinting fast on the ground ---
+    if (crouchPressed && state.grounded && !state.sliding && state.slideCooldown <= 0 &&
+        sprintHeld && state.speed2D > state.moveSpeed * 0.9) {
+      startSlide();
+    }
+
+    // crouch flag (sliding keeps you low-profile); sprint pauses during a slide
+    state.crouching = wantCrouch || state.sliding;
+    const crouchTarget = state.sliding ? 1 : Number(wantCrouch);
+    state.crouchT += (crouchTarget - state.crouchT) * Math.min(1, 12 * dt);
+    // Sprint is derived from input every frame (held Shift), decoupled from
+    // jumping so a lost keyup can never leave sprint stuck.
+    state.sprinting = sprintHeld && !wantCrouch && !state.sliding && state.grounded && moving;
 
     // horizontal basis from yaw
     forward.set(-Math.sin(state.yaw), 0, -Math.cos(state.yaw));
@@ -141,27 +186,66 @@ export function createPlayer(camera, world) {
     if (keys.has("KeyS")) { mx -= forward.x; mz -= forward.z; }
     if (keys.has("KeyD")) { mx += right.x; mz += right.z; }
     if (keys.has("KeyA")) { mx -= right.x; mz -= right.z; }
-
-    // wish velocity -> exponential approach: quick to top speed on the ground,
-    // gentle drift in the air. Feels like acceleration without losing max speed.
-    let wishX = 0;
-    let wishZ = 0;
     const len = Math.hypot(mx, mz);
-    if (len > 0) {
-      wishX = (mx / len) * speed;
-      wishZ = (mz / len) * speed;
+
+    if (state.sliding) {
+      // Slide: decaying burst along a locked (but gently steerable) direction.
+      state.slideT += dt;
+      let sp = Math.hypot(state.velX, state.velZ);
+      sp = Math.max(0, sp - SLIDE_FRICTION * dt);
+      if (len > 0) { // curve the slide a little toward the input direction
+        const s = Math.min(1, SLIDE_STEER * dt);
+        state.slideDirX += (mx / len - state.slideDirX) * s;
+        state.slideDirZ += (mz / len - state.slideDirZ) * s;
+        const dm = Math.hypot(state.slideDirX, state.slideDirZ) || 1;
+        state.slideDirX /= dm;
+        state.slideDirZ /= dm;
+      }
+      state.velX = state.slideDirX * sp;
+      state.velZ = state.slideDirZ * sp;
+      state.pos.x += state.velX * dt;
+      state.pos.z += state.velZ * dt;
+      state.speed2D = sp;
+      // A tap-slide runs its course: end when timed out, slowed to a crouch-walk,
+      // or knocked airborne (a jump slide-hops out via queueJump).
+      if (state.slideT > SLIDE_MAX_T || sp < state.moveSpeed || !state.grounded) {
+        endSlide();
+      }
+    } else {
+      // wish velocity -> exponential approach: quick to top speed on the ground,
+      // gentle drift in the air. Feels like acceleration without losing max speed.
+      let speed = state.moveSpeed;
+      if (state.crouching) speed *= state.crouchMul;
+      if (state.sprinting) speed *= state.sprintMul;
+      let wishX = 0;
+      let wishZ = 0;
+      if (len > 0) {
+        wishX = (mx / len) * speed;
+        wishZ = (mz / len) * speed;
+      }
+      const accel = state.grounded ? (len > 0 ? 13 : 11) : 3.2;
+      const k = Math.min(1, accel * dt);
+      state.velX += (wishX - state.velX) * k;
+      state.velZ += (wishZ - state.velZ) * k;
+      state.pos.x += state.velX * dt;
+      state.pos.z += state.velZ * dt;
+      state.speed2D = Math.hypot(state.velX, state.velZ);
     }
-    const accel = state.grounded ? (len > 0 ? 13 : 11) : 3.2;
-    const k = Math.min(1, accel * dt);
-    state.velX += (wishX - state.velX) * k;
-    state.velZ += (wishZ - state.velZ) * k;
-    state.pos.x += state.velX * dt;
-    state.pos.z += state.velZ * dt;
-    state.speed2D = Math.hypot(state.velX, state.velZ);
 
     resolveCollisions();
 
-    // (jump is applied immediately in queueJump, on the Space keydown event)
+    // --- jump: buffered press consumed only when grounded or within coyote ---
+    // This is what kills the old infinite-fly bug: once you've been airborne
+    // longer than the coyote window, there is no ground credit left to jump on.
+    jumpBuffer = Math.max(0, jumpBuffer - dt);
+    coyote = state.grounded ? 0.1 : Math.max(0, coyote - dt);
+    if (jumpBuffer > 0 && coyote > 0 && state.vy <= 0.01) {
+      state.vy = state.jumpSpeed;
+      state.grounded = false;
+      coyote = 0;
+      jumpBuffer = 0;
+      if (state.sliding) endSlide(); // slide-hop: keep the horizontal momentum
+    }
 
     const prevVy = state.vy;
     state.vy -= state.gravity * dt;

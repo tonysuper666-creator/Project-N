@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710004";
+const BUILD_VERSION = "260710005";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -480,7 +480,7 @@ function updateHUD() {
   const hud = weapons.getHUD();
   weaponEl.textContent = hud.name;
   ammoEl.textContent = hud.ammoText;
-  sprintEl.textContent = player.state.sprinting ? "疾跑" : "";
+  sprintEl.textContent = player.state.sliding ? "滑铲" : player.state.sprinting ? "疾跑" : "";
   healthEl.textContent = `${Math.round(player.state.health)}`;
   if (healthFill) {
     const pct = (player.state.health / player.state.maxHealth) * 100;
@@ -603,7 +603,7 @@ function animate(now) {
   }
 
   // sprint widens the FOV slightly for a sense of speed
-  const fovTarget = player.state.sprinting ? 78 : 72;
+  const fovTarget = player.state.sliding ? 82 : player.state.sprinting ? 78 : 72;
   if (Math.abs(camera.fov - fovTarget) > 0.05) {
     camera.fov += (fovTarget - camera.fov) * Math.min(1, 9 * dt);
     camera.updateProjectionMatrix();

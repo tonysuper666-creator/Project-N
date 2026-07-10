@@ -100,6 +100,19 @@ export const audio = {
     o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.15);
   },
 
+  // Slide: a short gravelly whoosh (filtered noise sweeping down).
+  slide() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const src = c.createBufferSource(); src.buffer = noise(c, 0.5);
+    const f = c.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 0.9;
+    f.frequency.setValueAtTime(1400, t); f.frequency.exponentialRampToValueAtTime(320, t + 0.42);
+    const g = c.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.05);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + 0.48);
+    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.5);
+  },
+
   // UI: short soft click for menu buttons.
   click() {
     const c = ac(); if (!c) return;
