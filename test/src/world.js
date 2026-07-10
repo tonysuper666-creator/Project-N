@@ -914,8 +914,9 @@ export function createWorld(scene, hooks = {}) {
       group: g, health: hp, maxHealth: hp, alive: true, hitFlash: 0, phase: Math.random() * 6,
       heavy,
       dying: false, deathT: 0,
-      speed: heavy ? 1.3 : 2.0 + Math.random() * 0.8,
-      nextShot: state.time + 1.2 + Math.random() * 1.6, // grace period after spawning
+      speed: heavy ? 1.5 : 2.4 + Math.random() * 0.9, // a touch faster so they close the gap
+      engaged: false, // flips true once within detection range (then they fire)
+      nextShot: state.time + 3.5 + Math.random() * 3, // long grace: time to get bearings
       rig: g.userData.rig,
       flashMesh: g.userData.flash,
       walkPhase: Math.random() * 6, // drives the limb swing
@@ -940,22 +941,25 @@ export function createWorld(scene, hooks = {}) {
     enemies.length = 0;
     // enemies get a bit tougher each wave
     const hp = Math.min(60 + (state.wave - 1) * 15, 120);
+    // Spawn as a squad coming from ONE direction (a frontal arc), not a full
+    // 360° ring — so entering an area never means being surrounded. Each wave
+    // picks a fresh approach bearing; enemies spread ±60° around it, far off.
+    const baseAngle = Math.random() * Math.PI * 2;
     let placed = 0, tries = 0;
-    while (placed < n && tries < n * 10) {
+    while (placed < n && tries < n * 12) {
       tries += 1;
-      const a = Math.random() * Math.PI * 2;
-      const r = 12 + Math.random() * 16;
+      const a = baseAngle + (Math.random() - 0.5) * (Math.PI * 2 / 3); // ±60°
+      const r = 26 + Math.random() * 16; // 26–42m out: they must walk in
       const ex = Math.cos(a) * r;
       const ez = Math.sin(a) * r;
       if (isBlockedRel(ex, ez)) continue; // don't spawn inside a POI
       makeEnemy(ex, ez, hp);
       placed += 1;
     }
-    // every 3rd wave a heavy walks in with the squad
+    // every 3rd wave a heavy joins the squad from the same direction
     const hasBoss = state.wave > 0 && state.wave % 3 === 0;
     if (hasBoss) {
-      const a = Math.random() * Math.PI * 2;
-      makeEnemy(Math.cos(a) * 20, Math.sin(a) * 20, 240 + state.wave * 20, true);
+      makeEnemy(Math.cos(baseAngle) * 30, Math.sin(baseAngle) * 30, 240 + state.wave * 20, true);
     }
     if (hooks.onWaveSpawn) hooks.onWaveSpawn(state.wave, placed + (hasBoss ? 1 : 0), hasBoss);
   }
@@ -991,9 +995,11 @@ export function createWorld(scene, hooks = {}) {
     tracers.length = 0;
   }
   function enemyFire(e, ps, dist) {
-    // hit chance falls with range; crouching makes you a harder target
-    let chance = Math.max(0.15, 0.68 - dist * 0.014);
+    // hit chance falls off sharply with range: lethal up close, mostly harmless
+    // at a distance so you can reposition. Crouching makes you a harder target.
+    let chance = Math.max(0.08, 0.5 - Math.max(0, dist - 6) * 0.03);
     if (ps.crouching) chance *= 0.6;
+    if (ps.sprinting) chance *= 0.8; // moving fast is safer too
     const hit = Math.random() < chance;
     const from = e.group.position.clone();
     from.y += e.heavy ? 2.2 : 1.55;
@@ -1005,7 +1011,7 @@ export function createWorld(scene, hooks = {}) {
     }
     spawnTracer(from, to, e.heavy ? 0xff4030 : 0xff8a5a);
     audio.enemyShot();
-    const dmg = e.heavy ? 11 + Math.floor(Math.random() * 7) : 5 + Math.floor(Math.random() * 5);
+    const dmg = e.heavy ? 9 + Math.floor(Math.random() * 6) : 4 + Math.floor(Math.random() * 4);
     if (hit && hooks.onPlayerHit) hooks.onPlayerHit(dmg);
   }
 
@@ -1070,7 +1076,7 @@ export function createWorld(scene, hooks = {}) {
     state.inArea = true;
     state.wave = 1;
     nextWaveAt = -1;
-    clearLoot(); clearTracers(); spawnWave(8);
+    clearLoot(); clearTracers(); spawnWave(6);
   }
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
@@ -1193,13 +1199,22 @@ export function createWorld(scene, hooks = {}) {
               }
             }
           }
-          if (state.time >= e.nextShot && e.stagger <= 0) {
-            e.nextShot = state.time + (e.heavy ? 1.9 : 1.5) + Math.random();
-            if (dist < 32) {
+          // engagement: only fire once the player is within weapon range.
+          // Distant enemies advance in silence instead of sniping across the map.
+          const ENGAGE_RANGE = e.heavy ? 24 : 20;
+          if (dist < ENGAGE_RANGE) {
+            if (!e.engaged) { // just spotted the player — small reaction delay
+              e.engaged = true;
+              e.nextShot = Math.max(e.nextShot, state.time + 0.5 + Math.random() * 0.6);
+            }
+            if (state.time >= e.nextShot && e.stagger <= 0) {
+              e.nextShot = state.time + (e.heavy ? 2.1 : 1.7) + Math.random() * 0.9;
               enemyFire(e, playerState, dist);
               e.flashT = 0.07;
               if (e.flashMesh) e.flashMesh.visible = true;
             }
+          } else {
+            e.engaged = false; // lost range: hold fire again
           }
           if (e.flashT > 0) {
             e.flashT -= dt;
@@ -1252,7 +1267,7 @@ export function createWorld(scene, hooks = {}) {
     if (state.inArea && nextWaveAt > 0 && state.time >= nextWaveAt) {
       nextWaveAt = -1;
       state.wave += 1;
-      spawnWave(Math.min(8 + (state.wave - 1) * 2, 16));
+      spawnWave(Math.min(6 + (state.wave - 1) * 2, 16));
     }
     // loot orbs: bob + spin, pick up when the player walks over them.
     for (let i = loot.length - 1; i >= 0; i -= 1) {
