@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710005";
+const BUILD_VERSION = "260710006";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -132,8 +132,17 @@ function openChar() {
 }
 function closeChar(resume = true) {
   charPanel.classList.add("hidden");
-  if (resume) requestLock();
+  if (resume) resumeGame();
   else showPause();
+}
+
+// Close a panel and go straight back into the game. Re-locking the pointer is
+// the goal, but a browser may block a pointer-lock request that originates from
+// the Esc key; if the re-lock hasn't taken hold shortly after, fall back to the
+// pause overlay so the player is never stranded in an unlocked, menu-less state.
+function resumeGame() {
+  requestLock();
+  setTimeout(() => { if (!inputState.locked) showPause(); }, 280);
 }
 document.getElementById("charClose").addEventListener("click", () => closeChar(true));
 
@@ -354,22 +363,21 @@ function updateInteraction() {
 
 function onKeyDown(e) {
   if (e.code === "F8") { e.preventDefault(); toggleFullscreen(); return; }
-  // Backpack/attributes panel: B resumes the game, Esc goes to the pause overlay.
+  // Backpack/attributes panel: B or Esc both just close it and resume the game.
   if (!charPanel.classList.contains("hidden")) {
-    if (e.code === "KeyB") closeChar(true);
-    else if (e.code === "Escape") closeChar(false);
+    if (e.code === "KeyB" || e.code === "Escape") closeChar(true);
     return;
   }
-  // While a menu is open, Esc closes it to the pause overlay.
+  // While a menu is open, Esc closes it and resumes — not back to the menu.
   if (ui.isOpen()) {
     if (e.code === "Escape") {
       ui.close();
-      showPause();
+      resumeGame();
     }
     return;
   }
   if (e.code === "KeyB" && inputState.locked) { openChar(); return; }
-  if (["KeyW", "KeyA", "KeyS", "KeyD", "Space", "ShiftLeft", "ControlLeft"].includes(e.code)) {
+  if (["KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "Space", "ShiftLeft", "ControlLeft"].includes(e.code)) {
     e.preventDefault();
   }
   player.keys.add(e.code);

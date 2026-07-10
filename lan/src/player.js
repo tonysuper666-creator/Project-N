@@ -153,7 +153,9 @@ export function createPlayer(camera, world) {
 
   function update(dt) {
     state.slideCooldown = Math.max(0, state.slideCooldown - dt);
-    const wantCrouch = keys.has("ControlLeft") || keys.has("ControlRight");
+    // Crouch on C (primary) or Ctrl. C is the default because Ctrl+W closes the
+    // browser tab unless the page holds a Keyboard Lock (fullscreen only).
+    const wantCrouch = keys.has("KeyC") || keys.has("ControlLeft") || keys.has("ControlRight");
     const crouchPressed = wantCrouch && !prevCrouch; // fresh press this frame
     prevCrouch = wantCrouch;
 
