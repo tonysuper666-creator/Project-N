@@ -20,7 +20,7 @@
     <!-- ===== In-game HUD ===== -->
     <div id="hud">
       <div class="title">Project N — M1 雏形 <span id="buildVer" class="ver">…</span> <span id="fps" class="ver"></span></div>
-      <div class="hint">WASD 移动 · 鼠标瞄准 · 左键攻击 · E 交互 · 1/2/3 切换武器 · R 换弹 · 按住 Shift 冲刺 · Ctrl 蹲 · Space 跳 · F8 全屏</div>
+      <div class="hint">WASD 移动 · 鼠标瞄准 · 左键攻击 · E 交互 · 1/2/3 切换武器 · R 换弹 · Q 医疗针剂 · 按住 Shift 冲刺 · Ctrl 蹲 · Space 跳 · F8 全屏</div>
     </div>
 
     <div id="vignette" aria-hidden="true"></div>
@@ -30,11 +30,24 @@
     <div id="prompt"></div>
 
     <div id="stats">
+      <div class="row"><span class="label">等级</span><span id="level">Lv.1</span></div>
       <div class="row"><span class="label">击杀</span><span id="score">0</span></div>
       <div class="row"><span class="label">武器</span><span id="weapon">步枪</span></div>
       <div class="row"><span class="label">冲刺</span><span id="sprint">关</span></div>
       <div class="row"><span class="label">弹药</span><span id="ammo">30 / 150</span></div>
       <div class="row"><span class="label">生命</span><span id="health">100</span></div>
+    </div>
+
+    <div id="missionTracker" aria-hidden="true"></div>
+    <div id="damageFlash" aria-hidden="true"></div>
+
+    <!-- ===== Death screen ===== -->
+    <div id="deathScreen" class="hidden">
+      <div class="death-inner">
+        <h1>阵 亡</h1>
+        <p>你被击倒，回收系统已将你送回基地。装备完好。</p>
+        <button id="deathRespawn">返回基地</button>
+      </div>
     </div>
 
     <div id="overlay">
@@ -90,7 +103,7 @@
           <div class="hc-sub">DEPLOY · 训练场 + 部署门</div>
         </button>
       </div>
-      <div class="home-tips">进入后：按 <b>B</b> 打开背包/属性 · 走到<b>部署门</b>选择 Area 1 · 走到<b>商人</b>兑换金 AK</div>
+      <div class="home-tips">进入后：按 <b>B</b> 打开背包/属性 · 走到<b>任务官</b>接取任务 · 走到<b>部署门</b>进入 Area 1 · 走到<b>商人</b>兑换金 AK</div>
     </div>
 
     <!-- ===== In-game character / backpack panel (toggle with B) ===== -->

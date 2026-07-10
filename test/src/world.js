@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=DEV";
 import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=DEV";
+import { audio } from "./audio.js?v=DEV";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -486,10 +487,14 @@ export function createWorld(scene, hooks = {}) {
     }
     return g;
   }
-  function makeEnemy(x, z) {
+  function makeEnemy(x, z, hp) {
     const g = buildSoldier(0xc8d2dc); // silver training suit
     g.position.set(AX + x, 0, z);
-    const ctrl = { group: g, health: 60, maxHealth: 60, alive: true, hitFlash: 0, phase: Math.random() * 6 };
+    const ctrl = {
+      group: g, health: hp, maxHealth: hp, alive: true, hitFlash: 0, phase: Math.random() * 6,
+      speed: 2.0 + Math.random() * 0.8,
+      nextShot: state.time + 1.2 + Math.random() * 1.6, // grace period after spawning
+    };
     const bodies = [];
     g.traverse((m) => { if (m.isMesh) { m.userData.type = "enemy"; m.userData.enemy = ctrl; bodies.push(m); } });
     ctrl.bodies = bodies;
@@ -498,19 +503,53 @@ export function createWorld(scene, hooks = {}) {
     return ctrl;
   }
 
-  const state = { score: 0, time: 0, inArea: false };
+  const state = { score: 0, time: 0, inArea: false, wave: 0 };
+  let nextWaveAt = -1; // >0 while waiting between cleared waves
 
   function spawnWave(n) {
     for (const e of enemies) scene.remove(e.group);
     enemies.length = 0;
+    // enemies get a bit tougher each wave
+    const hp = Math.min(60 + (state.wave - 1) * 15, 120);
     let placed = 0, tries = 0;
     while (placed < n && tries < n * 10) {
       tries += 1;
       const a = Math.random() * Math.PI * 2;
-      const r = 9 + Math.random() * 15;
-      makeEnemy(Math.cos(a) * r, Math.sin(a) * r);
+      const r = 12 + Math.random() * 14;
+      makeEnemy(Math.cos(a) * r, Math.sin(a) * r, hp);
       placed += 1;
     }
+    if (hooks.onWaveSpawn) hooks.onWaveSpawn(state.wave, placed);
+  }
+
+  // --- enemy fire: brief tracer line + distant crack, chance-to-hit ------
+  const tracers = [];
+  function spawnTracer(from, to, color) {
+    const geo = new THREE.BufferGeometry().setFromPoints([from, to]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    scene.add(line);
+    tracers.push({ line, life: 0.12, max: 0.12 });
+  }
+  function clearTracers() {
+    for (const t of tracers) { scene.remove(t.line); t.line.geometry.dispose(); t.line.material.dispose(); }
+    tracers.length = 0;
+  }
+  function enemyFire(e, ps, dist) {
+    // hit chance falls with range; crouching makes you a harder target
+    let chance = Math.max(0.15, 0.68 - dist * 0.014);
+    if (ps.crouching) chance *= 0.6;
+    const hit = Math.random() < chance;
+    const from = e.group.position.clone();
+    from.y += 1.55;
+    const to = new THREE.Vector3(ps.pos.x, ps.pos.y + (ps.crouching ? 1.0 : 1.5), ps.pos.z);
+    if (!hit) { // visible near miss
+      to.x += (Math.random() - 0.5) * 2.6;
+      to.y += Math.random() * 1.4;
+      to.z += (Math.random() - 0.5) * 2.6;
+    }
+    spawnTracer(from, to, 0xff8a5a);
+    audio.enemyShot();
+    if (hit && hooks.onPlayerHit) hooks.onPlayerHit(5 + Math.floor(Math.random() * 5));
   }
   function spawnLoot(pos) {
     const drop = rollLoot();
@@ -537,15 +576,20 @@ export function createWorld(scene, hooks = {}) {
   function enterArea1() {
     scene.fog = forestFog; scene.background = forestBg;
     areaGroup.visible = true;
-    clearLoot(); spawnWave(10); state.inArea = true;
+    state.inArea = true;
+    state.wave = 1;
+    nextWaveAt = -1;
+    clearLoot(); clearTracers(); spawnWave(8);
   }
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
     areaGroup.visible = false;
     state.inArea = false;
+    state.wave = 0;
+    nextWaveAt = -1;
     for (const e of enemies) scene.remove(e.group);
     enemies.length = 0;
-    clearLoot();
+    clearLoot(); clearTracers();
   }
   function enemiesLeft() { let n = 0; for (const e of enemies) if (e.alive) n += 1; return n; }
 
@@ -571,19 +615,61 @@ export function createWorld(scene, hooks = {}) {
     return list;
   }
 
-  function update(dt, playerPos) {
+  function update(dt, playerState) {
     state.time += dt;
+    const playerPos = playerState ? playerState.pos : null;
     for (const d of decor) {
       if (d.axis === "y") d.mesh.rotation.y += dt * d.spin;
       else d.mesh.rotation.z += dt * d.spin;
     }
-    // Area 1 enemies: bob, face the player, flash when hit.
+    // Area 1 enemies: chase the player to firing range, shoot on a timer.
     for (const e of enemies) {
       if (!e.alive) continue;
       e.group.position.y = Math.sin(state.time * 1.6 + e.phase) * 0.04;
-      // face the player on the yaw axis only (no pitch, so it never tips over)
-      if (playerPos) e.group.rotation.set(0, Math.atan2(playerPos.x - e.group.position.x, playerPos.z - e.group.position.z), 0);
+      if (playerPos) {
+        // face the player on the yaw axis only (no pitch, so it never tips over)
+        e.group.rotation.set(0, Math.atan2(playerPos.x - e.group.position.x, playerPos.z - e.group.position.z), 0);
+        if (state.inArea) {
+          const dx = playerPos.x - e.group.position.x;
+          const dz = playerPos.z - e.group.position.z;
+          const dist = Math.hypot(dx, dz);
+          if (dist > 9) { // advance to firing range
+            const step = e.speed * dt;
+            e.group.position.x += (dx / dist) * step;
+            e.group.position.z += (dz / dist) * step;
+            // stay inside the forest bounds
+            e.group.position.x = Math.min(AX + FH - 1.5, Math.max(AX - FH + 1.5, e.group.position.x));
+            e.group.position.z = Math.min(FH - 1.5, Math.max(-FH + 1.5, e.group.position.z));
+          }
+          if (state.time >= e.nextShot) {
+            e.nextShot = state.time + 1.5 + Math.random();
+            if (dist < 30) enemyFire(e, playerState, dist);
+          }
+        }
+      }
       if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
+    }
+    // fade out enemy tracers
+    for (let i = tracers.length - 1; i >= 0; i -= 1) {
+      const t = tracers[i];
+      t.life -= dt;
+      t.line.material.opacity = Math.max(0, t.life / t.max) * 0.85;
+      if (t.life <= 0) {
+        scene.remove(t.line);
+        t.line.geometry.dispose();
+        t.line.material.dispose();
+        tracers.splice(i, 1);
+      }
+    }
+    // wave flow: clear -> short break -> next (slightly bigger) wave
+    if (state.inArea && enemies.length > 0 && enemiesLeft() === 0 && nextWaveAt < 0) {
+      nextWaveAt = state.time + 4;
+      if (hooks.onWaveCleared) hooks.onWaveCleared(state.wave);
+    }
+    if (state.inArea && nextWaveAt > 0 && state.time >= nextWaveAt) {
+      nextWaveAt = -1;
+      state.wave += 1;
+      spawnWave(Math.min(8 + (state.wave - 1) * 2, 16));
     }
     // loot orbs: bob + spin, pick up when the player walks over them.
     for (let i = loot.length - 1; i >= 0; i -= 1) {

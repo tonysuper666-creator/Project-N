@@ -1,13 +1,14 @@
 import { account } from "./account.js?v=DEV";
 import { ITEM_DB } from "./inventory.js?v=DEV";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=DEV";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
 // game.
 
 const VENDOR_ITEMS = [
-  { name: "步枪弹药 ×60", price: 120 },
-  { name: "手枪弹药 ×36", price: 80 },
+  { name: "步枪弹药 ×60", price: 120, ammo: { id: "rifle", qty: 60 } },
+  { name: "手枪弹药 ×36", price: 80, ammo: { id: "pistol", qty: 36 } },
   { name: "医疗针剂 ×1", price: 200, give: "med_stim" },
   { name: "数据芯片 ×1", price: 350, give: "data_chip" },
 ];
@@ -15,14 +16,9 @@ const VENDOR_ITEMS = [
 // Exchange materials for the gold AK skin.
 const GOLD_AK_COST = [{ id: "scrap", qty: 8 }, { id: "data_chip", qty: 3 }];
 
-const MISSIONS = [
-  { name: "清剿前哨", desc: "在废弃设施消灭 12 个敌人", reward: "₡ 600 + 材料 ×4" },
-  { name: "回收数据", desc: "潜入异常区域取回 3 份数据核心", reward: "₡ 850 + 改装件" },
-];
-
 const AREAS = [
-  { id: "area1", name: "AREA 1 · 白色设施", diff: "普通", reqLevel: 1,
-    desc: "白色训练设施，银装训练兵驻守。击杀掉落材料，小概率掉成品武器。" },
+  { id: "area1", name: "AREA 1 · 密林前哨", diff: "普通", reqLevel: 1,
+    desc: "针叶林作战区，银装训练兵波次进攻。击杀掉落材料，小概率掉成品武器；走到撤离点按 E 返回。" },
 ];
 
 export function createUI(hooks = {}) {
@@ -126,6 +122,7 @@ export function createUI(hooks = {}) {
           d.coins -= item.price;
           if (item.give) { const e = d.inventory.find((x) => x.id === item.give); if (e) e.qty += 1; else d.inventory.push({ id: item.give, qty: 1 }); }
           account.save(d);
+          if (item.ammo && hooks.onBuyAmmo) hooks.onBuyAmmo(item.ammo); // load it straight into the weapon
           refreshCoins();
           toast(`已购买：${item.name}`);
         } else { toast("余额不足"); }
@@ -136,17 +133,36 @@ export function createUI(hooks = {}) {
 
   function openMission() {
     open = true;
-    const body = shell("任务终端", "接取任务获取奖励");
+    const body = shell("任务终端", "接取任务，完成后回来领取奖励");
     for (const m of MISSIONS) {
       const row = document.createElement("div");
       row.className = "listRow tall";
       row.innerHTML = `<div class="rowText"><span class="rowName">${m.name}</span>
         <span class="rowDesc">${m.desc}</span>
-        <span class="rowReward">奖励：${m.reward}</span></div>
-        <button class="rowBtn">接取</button>`;
-      row.querySelector(".rowBtn").addEventListener("click", (e) => {
-        e.target.textContent = "已接取"; e.target.disabled = true;
-        toast(`已接取任务：${m.name}`);
+        <span class="rowReward">奖励：${m.rewardText}</span></div>
+        <button class="rowBtn"></button>`;
+      const btn = row.querySelector(".rowBtn");
+      const render = () => {
+        const st = missionState(m.id);
+        if (!st) { btn.textContent = "接取"; btn.disabled = false; btn.classList.remove("deploy"); }
+        else if (!st.done) { btn.textContent = `进行中 ${st.progress}/${m.goal}`; btn.disabled = true; }
+        else if (!st.claimed) { btn.textContent = "领取奖励"; btn.disabled = false; btn.classList.add("deploy"); }
+        else { btn.textContent = "已完成"; btn.disabled = true; btn.classList.remove("deploy"); }
+      };
+      render();
+      btn.addEventListener("click", () => {
+        const st = missionState(m.id);
+        if (!st) {
+          acceptMission(m.id);
+          toast(`已接取任务：${m.name}`);
+        } else if (st.done && !st.claimed) {
+          if (claimMission(m.id)) {
+            toast(`任务完成：${m.name} · 获得 ${m.rewardText}`);
+            refreshCoins();
+          }
+        }
+        render();
+        if (hooks.onMissionsChanged) hooks.onMissionsChanged();
       });
       body.appendChild(row);
     }

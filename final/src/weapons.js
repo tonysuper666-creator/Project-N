@@ -65,10 +65,10 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     const obj = hit.object;
     if (obj.userData && obj.userData.type === "target") {
       const killed = world.damageTarget(obj, damage);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed);
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "target");
     } else if (obj.userData && obj.userData.type === "enemy") {
       const killed = world.damageEnemy(obj.userData.enemy, damage);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed);
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy");
     } else if (obj.userData && typeof obj.userData.onHit === "function") {
       obj.userData.onHit(damage); // e.g. a networked opponent in the 1v1 mode
       if (hooks.onHitmarker) hooks.onHitmarker(false);
@@ -126,6 +126,13 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       w.reserve = w.def.reserve;
       w.ammo = w.def.mag;
     }
+  }
+
+  // add reserve ammo to one weapon (vendor purchases), capped at 999.
+  function addReserve(id, amount) {
+    const w = weapons.find((x) => x.def.id === id);
+    if (!w || w.def.mode === "melee") return;
+    w.reserve = Math.min(999, w.reserve + amount);
   }
 
   function triggerDown(time) {
@@ -246,5 +253,5 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     };
   }
 
-  return { triggerDown, triggerUp, select, reload, resupply, update, getHUD };
+  return { triggerDown, triggerUp, select, reload, resupply, addReserve, update, getHUD };
 }

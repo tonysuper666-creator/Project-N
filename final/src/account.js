@@ -17,10 +17,15 @@ function hash(s) {
   return h.toString(16);
 }
 
+// XP needed to go from `level` to `level + 1`.
+export const xpNeed = (level) => 80 + level * 40;
+
 // Starter loadout so the backpack isn't empty while there's no game content yet.
 function defaultData() {
   return {
     level: 1,
+    xp: 0,
+    missions: {}, // accepted missions: id -> { progress, done, claimed }
     coins: 500,
     skins: { ak: "black" }, // in-hand AK skin; "gold" is earned from the merchant
     equipment: { primary: "ak47_black", secondary: "pistol_std", melee: "combat_knife", armor: null, gear: null },
@@ -70,9 +75,27 @@ export const account = {
     if (!d) return null;
     // migrate older saves
     if (d.level == null) d.level = 1;
+    if (d.xp == null) d.xp = 0;
+    if (!d.missions) d.missions = {};
     if (!d.skins) d.skins = { ak: "black" };
     if (!d.stats) d.stats = { kills: 0, deaths: 0, runs: 0 };
     return d;
+  },
+  // Grant coins + XP (kills, wave bonuses). Handles level-ups; returns the
+  // number of levels gained so the caller can celebrate.
+  award(coins = 0, xp = 0) {
+    const d = this.getData();
+    if (!d) return 0;
+    d.coins += coins;
+    d.xp += xp;
+    let ups = 0;
+    while (d.xp >= xpNeed(d.level)) {
+      d.xp -= xpNeed(d.level);
+      d.level += 1;
+      ups += 1;
+    }
+    this.save(d);
+    return ups;
   },
   save(data) {
     const u = this.current();

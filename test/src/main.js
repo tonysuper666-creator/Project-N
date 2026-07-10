@@ -12,11 +12,13 @@ import "./shell.js?v=DEV"; // boot logo + login + lobby + backpack (front-end sh
 import { account } from "./account.js?v=DEV";
 import { renderInventory, ITEM_DB } from "./inventory.js?v=DEV";
 import { audio } from "./audio.js?v=DEV";
+import { recordProgress, trackedMissions } from "./missions.js?v=DEV";
+import { xpNeed } from "./account.js?v=DEV";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260611032";
+const BUILD_VERSION = "260710001";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -52,7 +54,33 @@ const world = createWorld(scene, {
     account.addItem(drop.id, drop.qty);
     const it = ITEM_DB[drop.id];
     ui.toast(`拾取：${it ? it.name : drop.id}${drop.qty > 1 ? " ×" + drop.qty : ""}`);
+    // advance accepted collect missions (e.g. data chips)
+    for (const m of recordProgress("collect", drop.id, drop.qty)) {
+      ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
+    }
+    refreshMissionHUD();
     if (charPanel && !charPanel.classList.contains("hidden")) renderInventory(charBody);
+  },
+  // Enemy fire that connects: flash the screen, then die/respawn at 0 HP.
+  onPlayerHit(dmg) {
+    if (dead || !inputState.locked) return;
+    player.state.health = Math.max(0, player.state.health - dmg);
+    audio.hurt();
+    const flash = document.getElementById("damageFlash");
+    flash.classList.remove("show");
+    void flash.offsetWidth;
+    flash.classList.add("show");
+    if (player.state.health <= 0) die();
+  },
+  onWaveCleared(wave) {
+    const bonus = 80 + wave * 40;
+    const ups = account.award(bonus, 30);
+    ui.toast(`第 ${wave} 波已清剿 · 奖励 ◈${bonus}，下一波即将来袭`);
+    if (ups > 0) celebrateLevelUp();
+    refreshMissionHUD();
+  },
+  onWaveSpawn(wave, count) {
+    if (wave > 1) ui.toast(`第 ${wave} 波来袭 · ${count} 名敌人`);
   },
 });
 const player = createPlayer(camera, world);
@@ -103,14 +131,38 @@ function showKill() {
 }
 
 const weapons = createWeapons(camera, scene, world, player, {
-  onHitmarker(killed) {
+  onHitmarker(killed, kind) {
     // retrigger the CSS flash animation
     hitmarker.classList.remove("show");
     void hitmarker.offsetWidth;
     hitmarker.classList.add("show");
-    if (killed) showKill();
+    if (killed) {
+      showKill();
+      if (kind === "enemy") onEnemyKill();
+    }
   },
 }, viewCamera);
+
+// A real enemy kill (not a training target) pays out coins + XP, counts
+// toward kill missions, and bumps the persistent kill stat.
+const KILL_COINS = 25;
+const KILL_XP = 20;
+function onEnemyKill() {
+  const d = account.getData();
+  if (d) { d.stats.kills += 1; account.save(d); }
+  const ups = account.award(KILL_COINS, KILL_XP);
+  if (ups > 0) celebrateLevelUp();
+  for (const m of recordProgress("kill")) {
+    ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
+  }
+  refreshMissionHUD();
+}
+
+function celebrateLevelUp() {
+  const d = account.getData();
+  audio.levelup();
+  ui.toast(`等级提升！当前 Lv.${d ? d.level : "?"}`);
+}
 
 const ui = createUI({
   onResume: () => requestLock(),
@@ -122,7 +174,62 @@ const ui = createUI({
     if (d) { d.stats.runs += 1; account.save(d); }
     ui.toast(`已进入 ${area.name} · 走到撤离点按 E 返回`);
   },
+  onBuyAmmo: (ammo) => weapons.addReserve(ammo.id, ammo.qty),
+  onMissionsChanged: () => refreshMissionHUD(),
 });
+
+// --- Death / respawn ------------------------------------------------------
+const deathScreen = document.getElementById("deathScreen");
+let dead = false;
+
+function die() {
+  dead = true;
+  weapons.triggerUp();
+  const d = account.getData();
+  if (d) { d.stats.deaths += 1; account.save(d); }
+  // the recovery system hauls you back to base; loot stays with you
+  world.extract();
+  player.state.pos.copy(world.baseSpawn);
+  player.state.vy = 0;
+  deathScreen.classList.remove("hidden");
+  document.exitPointerLock?.();
+}
+
+document.getElementById("deathRespawn").addEventListener("click", () => {
+  dead = false;
+  player.state.health = 100;
+  deathScreen.classList.add("hidden");
+  requestLock();
+});
+
+// --- Med stim (Q) -----------------------------------------------------------
+function useStim() {
+  if (player.state.health >= 100) { ui.toast("生命值已满"); return; }
+  if (!account.take("med_stim", 1)) { ui.toast("没有医疗针剂"); return; }
+  player.state.health = Math.min(100, player.state.health + 50);
+  audio.heal();
+  ui.toast(`使用医疗针剂 +50 · 剩余 ${account.count("med_stim")} 支`);
+  if (charPanel && !charPanel.classList.contains("hidden")) renderInventory(charBody);
+}
+
+// --- Mission tracker + level HUD (event-driven, not per-frame) --------------
+const missionTrackerEl = document.getElementById("missionTracker");
+const levelEl = document.getElementById("level");
+function refreshMissionHUD() {
+  const d = account.getData();
+  if (levelEl && d) levelEl.textContent = `Lv.${d.level} · ${d.xp}/${xpNeed(d.level)}`;
+  if (!missionTrackerEl) return;
+  missionTrackerEl.innerHTML = "";
+  for (const { def, st } of trackedMissions()) {
+    const row = document.createElement("div");
+    row.className = "mt-row" + (st.done ? " done" : "");
+    row.innerHTML = st.done
+      ? `${def.name}<span class="mt-prog">✔ 待领取</span>`
+      : `${def.name}<span class="mt-prog">${st.progress}/${def.goal}</span>`;
+    missionTrackerEl.appendChild(row);
+  }
+}
+refreshMissionHUD();
 
 // --- Input --------------------------------------------------------------
 const inputState = { locked: false };
@@ -191,6 +298,7 @@ function onKeyDown(e) {
   if (e.code === "Space" && !e.repeat) player.queueJump();
   if (e.code === "KeyE") interact();
   if (e.code === "KeyR") weapons.reload();
+  if (e.code === "KeyQ" && inputState.locked && !e.repeat) useStim();
   if (e.code === "Digit1") weapons.select(0);
   if (e.code === "Digit2") weapons.select(1);
   if (e.code === "Digit3") weapons.select(2);
@@ -242,10 +350,11 @@ function showPause() {
 
 function onPointerLockChange() {
   inputState.locked = document.pointerLockElement === renderer.domElement;
-  // Show the start overlay only when paused with no menu/backpack panel open.
-  const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden");
+  // Show the start overlay only when paused with no menu/backpack/death panel open.
+  const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden") || dead;
   overlay.classList.toggle("hidden", inputState.locked || panelOpen);
   crosshair.style.display = inputState.locked ? "block" : "none";
+  if (inputState.locked) refreshMissionHUD(); // pick up level/mission changes made in menus
   // Sync the in-hand AK skin to the account (gold once unlocked from merchant).
   if (inputState.locked && window.__PN_SET_AK_SKIN__) {
     const d = account.getData();
@@ -306,8 +415,12 @@ function animate(now) {
   if (inputState.locked) {
     player.update(dt);
     weapons.update(dt, now / 1000);
-    world.update(dt, player.state.pos);
+    world.update(dt, player.state);
     updateInteraction();
+    // the base slowly patches you up; out in the field you need med stims
+    if (!world.state.inArea && !dead && player.state.health < 100) {
+      player.state.health = Math.min(100, player.state.health + 4 * dt);
+    }
   }
 
   composer.render();
@@ -328,3 +441,6 @@ function animate(now) {
 }
 
 requestAnimationFrame(animate);
+
+// Handle for automated smoke tests (same spirit as __PN_SET_AK_SKIN__).
+window.__PN_DEBUG__ = { player, world, weapons, ui, account };

@@ -70,4 +70,47 @@ export const audio = {
     const g2 = c.createGain(); g2.gain.setValueAtTime(0.15, t + 0.05); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.2);
     o2.connect(g2).connect(c.destination); o2.start(t + 0.05); o2.stop(t + 0.21);
   },
+
+  // Distant, muffled crack for enemy fire — clearly quieter than the player's gun.
+  enemyShot() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const src = c.createBufferSource(); src.buffer = noise(c, 0.12);
+    const f = c.createBiquadFilter(); f.type = "lowpass";
+    f.frequency.setValueAtTime(1600, t); f.frequency.exponentialRampToValueAtTime(220, t + 0.12);
+    const g = c.createGain(); g.gain.setValueAtTime(0.14, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + 0.13);
+  },
+
+  hurt() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(220, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.16);
+    const g = c.createGain(); g.gain.setValueAtTime(0.4, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.18);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.19);
+    const src = c.createBufferSource(); src.buffer = noise(c, 0.08);
+    const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 700;
+    const g2 = c.createGain(); g2.gain.setValueAtTime(0.2, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    src.connect(f).connect(g2).connect(c.destination); src.start(t); src.stop(t + 0.09);
+  },
+
+  heal() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const o = c.createOscillator(); o.type = "sine";
+    o.frequency.setValueAtTime(500, t); o.frequency.exponentialRampToValueAtTime(950, t + 0.22);
+    const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.16, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.26);
+    o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.27);
+  },
+
+  levelup() {
+    const c = ac(); if (!c) return;
+    [660, 880, 1320].forEach((freq, i) => {
+      const t = c.currentTime + i * 0.09;
+      const o = c.createOscillator(); o.type = "triangle"; o.frequency.setValueAtTime(freq, t);
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.18, t + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.23);
+    });
+  },
 };
