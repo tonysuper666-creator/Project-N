@@ -18,7 +18,7 @@ const GOLD_AK_COST = [{ id: "scrap", qty: 8 }, { id: "data_chip", qty: 3 }];
 
 const AREAS = [
   { id: "area1", name: "AREA 1 · 密林前哨", diff: "普通", reqLevel: 1,
-    desc: "针叶林作战区，银装训练兵波次进攻。击杀掉落材料，小概率掉成品武器；走到撤离点按 E 返回。" },
+    desc: "针叶林作战区，银装训练兵波次进攻，每 3 波出现重型单位（必掉 3 件战利品）。击杀掉落材料，小概率掉成品武器；走到撤离点按 E 返回。" },
 ];
 
 export function createUI(hooks = {}) {

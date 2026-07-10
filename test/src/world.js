@@ -15,7 +15,8 @@ export function createWorld(scene, hooks = {}) {
   scene.fog = new THREE.Fog(0x0c1622, 36, 92);
 
   // --- Lighting --------------------------------------------------------
-  scene.add(new THREE.HemisphereLight(0xcfe6ff, 0x35506a, 1.1));
+  const hemi = new THREE.HemisphereLight(0xcfe6ff, 0x35506a, 1.1);
+  scene.add(hemi);
   const key = new THREE.DirectionalLight(0xfff4e0, 2.8); // sun
   key.position.set(8, 20, 12);
   key.castShadow = true;
@@ -449,20 +450,100 @@ export function createWorld(scene, hooks = {}) {
       t.scale.setScalar(s); t.position.set(AX + Math.cos(a) * r, 0, Math.sin(a) * r); t.rotation.y = Math.random() * 6.28;
       areaGroup.add(t);
     }
-    // rocks + bushes
-    const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.95 });
-    const bushMat = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9 });
+    // keep props out of the spawn / extract clearings
+    const inClearing = (ex, ez) => Math.hypot(ex, ez) < 6 || Math.hypot(ex, ez - 8) < 3.5;
+    // rocks + bushes (big rocks are solid cover)
+    const rockMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.95, flatShading: true });
+    const bushMat = new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, flatShading: true });
     for (let i = 0; i < 22; i += 1) {
       const r = 0.4 + Math.random() * 0.9;
+      const ex = (Math.random() - 0.5) * FH * 1.6;
+      const ez = (Math.random() - 0.5) * FH * 1.6;
+      if (inClearing(ex, ez)) continue;
       const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), rockMat);
-      rock.position.set(AX + (Math.random() - 0.5) * FH * 1.6, r * 0.5, (Math.random() - 0.5) * FH * 1.6);
-      rock.rotation.set(Math.random(), Math.random(), Math.random()); rock.castShadow = true; areaGroup.add(rock);
+      rock.position.set(AX + ex, r * 0.5, ez);
+      rock.rotation.set(Math.random(), Math.random(), Math.random()); rock.castShadow = true; rock.receiveShadow = true; areaGroup.add(rock);
+      if (r > 0.85) { // big enough to hide behind
+        colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, r * 0.5, ez), new THREE.Vector3(r * 1.4, r, r * 1.4)));
+        solids.push(rock);
+      }
     }
     for (let i = 0; i < 46; i += 1) {
       const r = 0.4 + Math.random() * 0.5;
+      const ex = (Math.random() - 0.5) * FH * 1.6;
+      const ez = (Math.random() - 0.5) * FH * 1.6;
+      if (inClearing(ex, ez)) continue;
       const b = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), bushMat);
-      b.position.set(AX + (Math.random() - 0.5) * FH * 1.6, r * 0.7, (Math.random() - 0.5) * FH * 1.6);
+      b.position.set(AX + ex, r * 0.7, ez);
       b.castShadow = true; areaGroup.add(b);
+    }
+    // stumps + fallen logs — reads as a real woodland floor
+    const barkMat = new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 });
+    for (let i = 0; i < 9; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.6;
+      const ez = (Math.random() - 0.5) * FH * 1.6;
+      if (inClearing(ex, ez)) continue;
+      const stump = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.32, 0.36, 9), barkMat);
+      stump.position.set(AX + ex, 0.18, ez); stump.castShadow = true; stump.receiveShadow = true;
+      areaGroup.add(stump);
+    }
+    for (let i = 0; i < 7; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.5;
+      const ez = (Math.random() - 0.5) * FH * 1.5;
+      if (inClearing(ex, ez)) continue;
+      const len = 2 + Math.random() * 1.6;
+      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, len, 8), barkMat);
+      log.rotation.z = Math.PI / 2;
+      log.rotation.y = Math.random() * Math.PI;
+      log.position.set(AX + ex, 0.18, ez); log.castShadow = true; log.receiveShadow = true;
+      areaGroup.add(log);
+    }
+    // faint bioluminescent mushrooms — sci-fi accent in the shade
+    const shroomCap = new THREE.MeshStandardMaterial({ color: 0x5adfff, emissive: 0x38c8f0, emissiveIntensity: 1.1, roughness: 0.5 });
+    const shroomStem = new THREE.MeshStandardMaterial({ color: 0xd8e2d0, roughness: 0.9 });
+    for (let i = 0; i < 14; i += 1) {
+      const ex = (Math.random() - 0.5) * FH * 1.7;
+      const ez = (Math.random() - 0.5) * FH * 1.7;
+      if (inClearing(ex, ez)) continue;
+      for (let j = 0; j < 3; j += 1) {
+        const s = 0.5 + Math.random() * 0.8;
+        const ox = (Math.random() - 0.5) * 0.7;
+        const oz = (Math.random() - 0.5) * 0.7;
+        const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.02 * s, 0.03 * s, 0.14 * s, 6), shroomStem);
+        stem.position.set(AX + ex + ox, 0.07 * s, ez + oz);
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(0.07 * s, 0.08 * s, 8), shroomCap);
+        cap.position.set(AX + ex + ox, 0.16 * s, ez + oz);
+        areaGroup.add(stem, cap);
+      }
+    }
+    // abandoned supply crates + low barriers: hard cover for the firefight
+    const crateMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6, metalness: 0.2 });
+    const barrierMat = new THREE.MeshStandardMaterial({ map: metalTex, roughness: 0.5, metalness: 0.4 });
+    let cover = 0, coverTries = 0;
+    while (cover < 8 && coverTries < 60) {
+      coverTries += 1;
+      const a = Math.random() * Math.PI * 2;
+      const r = 6.5 + Math.random() * 14;
+      const ex = Math.cos(a) * r;
+      const ez = Math.sin(a) * r;
+      if (inClearing(ex, ez)) continue;
+      if (cover % 2 === 0) {
+        const box = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.1, 1.25), crateMat);
+        box.position.set(AX + ex, 0.55, ez);
+        box.rotation.y = Math.random() * Math.PI;
+        box.castShadow = true; box.receiveShadow = true;
+        areaGroup.add(box); solids.push(box);
+        colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, 0.55, ez), new THREE.Vector3(1.5, 1.1, 1.5)));
+      } else {
+        // axis-aligned so the AABB collider matches the visual exactly
+        const alongX = Math.random() < 0.5;
+        const bar = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 2.4 : 0.35, 0.95, alongX ? 0.35 : 2.4), barrierMat);
+        bar.position.set(AX + ex, 0.47, ez);
+        bar.castShadow = true; bar.receiveShadow = true;
+        areaGroup.add(bar); solids.push(bar);
+        colliders.push(new THREE.Box3().setFromObject(bar));
+      }
+      cover += 1;
     }
     // extract pad (return to base)
     areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.05, 8).rotateX(-Math.PI / 2));
@@ -487,12 +568,15 @@ export function createWorld(scene, hooks = {}) {
     }
     return g;
   }
-  function makeEnemy(x, z, hp) {
-    const g = buildSoldier(0xc8d2dc); // silver training suit
+  function makeEnemy(x, z, hp, heavy = false) {
+    const g = buildSoldier(heavy ? 0xb03a3a : 0xc8d2dc); // heavies wear dark red
+    if (heavy) g.scale.setScalar(1.45);
     g.position.set(AX + x, 0, z);
     const ctrl = {
       group: g, health: hp, maxHealth: hp, alive: true, hitFlash: 0, phase: Math.random() * 6,
-      speed: 2.0 + Math.random() * 0.8,
+      heavy,
+      dying: false, deathT: 0,
+      speed: heavy ? 1.3 : 2.0 + Math.random() * 0.8,
       nextShot: state.time + 1.2 + Math.random() * 1.6, // grace period after spawning
     };
     const bodies = [];
@@ -519,7 +603,31 @@ export function createWorld(scene, hooks = {}) {
       makeEnemy(Math.cos(a) * r, Math.sin(a) * r, hp);
       placed += 1;
     }
-    if (hooks.onWaveSpawn) hooks.onWaveSpawn(state.wave, placed);
+    // every 3rd wave a heavy walks in with the squad
+    const hasBoss = state.wave > 0 && state.wave % 3 === 0;
+    if (hasBoss) {
+      const a = Math.random() * Math.PI * 2;
+      makeEnemy(Math.cos(a) * 20, Math.sin(a) * 20, 240 + state.wave * 20, true);
+    }
+    if (hooks.onWaveSpawn) hooks.onWaveSpawn(state.wave, placed + (hasBoss ? 1 : 0), hasBoss);
+  }
+
+  // --- transient combat FX: death bursts + shell shards -------------------
+  const burstGeo = new THREE.OctahedronGeometry(0.06, 0);
+  const bursts = [];
+  function spawnDeathBurst(pos, heavy) {
+    const n = heavy ? 16 : 9;
+    for (let i = 0; i < n; i += 1) {
+      const mat = new THREE.MeshBasicMaterial({ color: i % 3 === 0 ? 0xff8a5a : 0xcfe0ee, transparent: true, opacity: 1 });
+      const m = new THREE.Mesh(burstGeo, mat);
+      m.position.set(pos.x, pos.y + 1.2, pos.z);
+      const life = 0.45 + Math.random() * 0.25;
+      bursts.push({
+        mesh: m, life, max: life,
+        vel: new THREE.Vector3((Math.random() - 0.5) * 5, 1.5 + Math.random() * 3.5, (Math.random() - 0.5) * 5),
+      });
+      scene.add(m);
+    }
   }
 
   // --- enemy fire: brief tracer line + distant crack, chance-to-hit ------
@@ -540,16 +648,32 @@ export function createWorld(scene, hooks = {}) {
     if (ps.crouching) chance *= 0.6;
     const hit = Math.random() < chance;
     const from = e.group.position.clone();
-    from.y += 1.55;
+    from.y += e.heavy ? 2.2 : 1.55;
     const to = new THREE.Vector3(ps.pos.x, ps.pos.y + (ps.crouching ? 1.0 : 1.5), ps.pos.z);
     if (!hit) { // visible near miss
       to.x += (Math.random() - 0.5) * 2.6;
       to.y += Math.random() * 1.4;
       to.z += (Math.random() - 0.5) * 2.6;
     }
-    spawnTracer(from, to, 0xff8a5a);
+    spawnTracer(from, to, e.heavy ? 0xff4030 : 0xff8a5a);
     audio.enemyShot();
-    if (hit && hooks.onPlayerHit) hooks.onPlayerHit(5 + Math.floor(Math.random() * 5));
+    const dmg = e.heavy ? 11 + Math.floor(Math.random() * 7) : 5 + Math.floor(Math.random() * 5);
+    if (hit && hooks.onPlayerHit) hooks.onPlayerHit(dmg);
+  }
+
+  // Bright, very short tracer for the player's own shots.
+  function spawnPlayerTracer(camera, end) {
+    const from = new THREE.Vector3();
+    camera.getWorldPosition(from);
+    const dir = new THREE.Vector3();
+    camera.getWorldDirection(dir);
+    // offset toward the muzzle (right + down + forward of the eye)
+    const rightV = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
+    from.addScaledVector(rightV, 0.14).addScaledVector(camera.up, -0.12).addScaledVector(dir, 0.55);
+    const geo = new THREE.BufferGeometry().setFromPoints([from, end]);
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.7 }));
+    scene.add(line);
+    tracers.push({ line, life: 0.06, max: 0.06 });
   }
   function spawnLoot(pos) {
     const drop = rollLoot();
@@ -566,8 +690,16 @@ export function createWorld(scene, hooks = {}) {
     if (!ctrl || !ctrl.alive) return false;
     ctrl.health -= dmg; ctrl.hitFlash = 1;
     if (ctrl.health <= 0) {
-      ctrl.alive = false; ctrl.group.visible = false;
-      spawnLoot(ctrl.group.position);
+      ctrl.alive = false;
+      ctrl.dying = true; // fall over, then sink away (animated in update)
+      ctrl.deathT = 0;
+      spawnDeathBurst(ctrl.group.position, ctrl.heavy);
+      // heavies guarantee a haul of three drops
+      const drops = ctrl.heavy ? 3 : 1;
+      for (let i = 0; i < drops; i += 1) {
+        const off = i === 0 ? { x: 0, z: 0 } : { x: (Math.random() - 0.5) * 1.6, z: (Math.random() - 0.5) * 1.6 };
+        spawnLoot({ x: ctrl.group.position.x + off.x, z: ctrl.group.position.z + off.z });
+      }
       state.score += 1;
       return true;
     }
@@ -575,6 +707,9 @@ export function createWorld(scene, hooks = {}) {
   }
   function enterArea1() {
     scene.fog = forestFog; scene.background = forestBg;
+    // warm daylight over the forest, greener bounce light
+    key.color.set(0xffe9c4); key.intensity = 3.3;
+    hemi.color.set(0xdcecff); hemi.groundColor.set(0x4a6a3c); hemi.intensity = 1.25;
     areaGroup.visible = true;
     state.inArea = true;
     state.wave = 1;
@@ -583,6 +718,8 @@ export function createWorld(scene, hooks = {}) {
   }
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
+    key.color.set(0xfff4e0); key.intensity = 2.8;
+    hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
     areaGroup.visible = false;
     state.inArea = false;
     state.wave = 0;
@@ -624,6 +761,14 @@ export function createWorld(scene, hooks = {}) {
     }
     // Area 1 enemies: chase the player to firing range, shoot on a timer.
     for (const e of enemies) {
+      if (e.dying) { // death animation: keel over, then sink into the ground
+        e.deathT += dt;
+        const fall = Math.min(1, e.deathT / 0.45);
+        e.group.rotation.x = -fall * fall * 1.4;
+        if (e.deathT > 0.5) e.group.position.y = -(e.deathT - 0.5) * 0.9;
+        if (e.deathT > 1.4) { e.dying = false; e.group.visible = false; }
+        continue;
+      }
       if (!e.alive) continue;
       e.group.position.y = Math.sin(state.time * 1.6 + e.phase) * 0.04;
       if (playerPos) {
@@ -648,6 +793,21 @@ export function createWorld(scene, hooks = {}) {
         }
       }
       if (e.hitFlash > 0) e.hitFlash = Math.max(0, e.hitFlash - dt * 4);
+    }
+    // death-burst shards: fly, tumble, fade
+    for (let i = bursts.length - 1; i >= 0; i -= 1) {
+      const b = bursts[i];
+      b.life -= dt;
+      b.vel.y -= 10 * dt;
+      b.mesh.position.addScaledVector(b.vel, dt);
+      b.mesh.rotation.x += dt * 10;
+      b.mesh.rotation.z += dt * 8;
+      b.mesh.material.opacity = Math.max(0, b.life / b.max);
+      if (b.life <= 0) {
+        scene.remove(b.mesh);
+        b.mesh.material.dispose();
+        bursts.splice(i, 1);
+      }
     }
     // fade out enemy tracers
     for (let i = tracers.length - 1; i >= 0; i -= 1) {
@@ -708,7 +868,7 @@ export function createWorld(scene, hooks = {}) {
 
   return {
     ROOM, colliders, solids, targets, interactables, state,
-    damageTarget, damageEnemy, getHittables, update,
+    damageTarget, damageEnemy, getHittables, update, spawnPlayerTracer,
     enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ,
   };
 }

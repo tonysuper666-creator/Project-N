@@ -16,6 +16,12 @@ export const MISSIONS = [
     reward: { coins: 850, items: [{ id: "tac_gloves", qty: 1 }] },
     rewardText: "₡ 850 + 战术手套",
   },
+  {
+    id: "m_waves", name: "波次防御", type: "wave", goal: 5,
+    desc: "在 Area 1 累计清剿 5 个波次（每 3 波会出现重型单位）。",
+    reward: { coins: 1200, items: [{ id: "data_chip", qty: 2 }] },
+    rewardText: "₡ 1200 + 数据芯片 ×2",
+  },
 ];
 
 export function missionState(id) {

@@ -4,6 +4,9 @@ const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
 // First-person controller: mouse-look (yaw/pitch), WASD movement with
 // sprint/crouch/jump + gravity, and AABB collision against the world.
+// Movement uses velocity smoothing (acceleration / glide) instead of instant
+// velocity, plus smoothed crouch, head-bob, landing dip and look-sway data so
+// the camera and view-model feel fluid.
 export function createPlayer(camera, world) {
   camera.rotation.order = "YXZ"; // yaw then pitch — correct FPS look order
 
@@ -21,25 +24,37 @@ export function createPlayer(camera, world) {
     gravity: 15,
     crouching: false,
     sprinting: false,
+    moving: false,
     health: 100,
+    maxHealth: 100,
+    // smoothed motion state
+    velX: 0,
+    velZ: 0,
+    crouchT: 0, // 0 = standing .. 1 = crouched (eased)
+    bobPhase: 0,
+    bobAmp: 0,
+    landDip: 0, // camera dip right after a hard landing
+    swayX: 0, // smoothed look velocity (-1..1), consumed by the view-model
+    swayY: 0,
+    speed2D: 0, // current horizontal speed (for FOV kick etc.)
   };
 
   const keys = new Set();
   const forward = new THREE.Vector3();
   const right = new THREE.Vector3();
-
-  // jump feel helpers
-  let jumpBuffer = 0; // set by queueJump() on a real keydown event
-  let coyote = 0; // lets you jump just after leaving the ground
+  let lookAccX = 0; // mouse delta accumulated since the last update()
+  let lookAccY = 0;
 
   function eyeHeight() {
-    return state.crouching ? 1.05 : 1.62;
+    return 1.62 + (1.05 - 1.62) * state.crouchT;
   }
 
   // Called from the mouse-move handler while pointer is locked.
   function look(dx, dy) {
     state.yaw -= dx * 0.0024;
     state.pitch = clamp(state.pitch - dy * 0.0019, -1.5, 1.5);
+    lookAccX += dx;
+    lookAccY += dy;
   }
 
   // Small vertical kick used by weapon recoil.
@@ -94,7 +109,9 @@ export function createPlayer(camera, world) {
   }
 
   function update(dt) {
-    state.crouching = keys.has("ControlLeft") || keys.has("ControlRight");
+    const wantCrouch = keys.has("ControlLeft") || keys.has("ControlRight");
+    state.crouching = wantCrouch;
+    state.crouchT += (Number(wantCrouch) - state.crouchT) * Math.min(1, 12 * dt);
     const moving =
       keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD");
     state.moving = moving;
@@ -120,26 +137,58 @@ export function createPlayer(camera, world) {
     if (keys.has("KeyD")) { mx += right.x; mz += right.z; }
     if (keys.has("KeyA")) { mx -= right.x; mz -= right.z; }
 
+    // wish velocity -> exponential approach: quick to top speed on the ground,
+    // gentle drift in the air. Feels like acceleration without losing max speed.
+    let wishX = 0;
+    let wishZ = 0;
     const len = Math.hypot(mx, mz);
     if (len > 0) {
-      state.pos.x += (mx / len) * speed * dt;
-      state.pos.z += (mz / len) * speed * dt;
+      wishX = (mx / len) * speed;
+      wishZ = (mz / len) * speed;
     }
+    const accel = state.grounded ? (len > 0 ? 13 : 11) : 3.2;
+    const k = Math.min(1, accel * dt);
+    state.velX += (wishX - state.velX) * k;
+    state.velZ += (wishZ - state.velZ) * k;
+    state.pos.x += state.velX * dt;
+    state.pos.z += state.velZ * dt;
+    state.speed2D = Math.hypot(state.velX, state.velZ);
 
     resolveCollisions();
 
     // (jump is applied immediately in queueJump, on the Space keydown event)
 
+    const prevVy = state.vy;
     state.vy -= state.gravity * dt;
     state.pos.y += state.vy * dt;
     if (state.pos.y <= 0) {
       state.pos.y = 0;
       state.vy = 0;
+      if (!state.grounded && prevVy < -5) {
+        state.landDip = Math.min(1, -prevVy / 14); // hard landing -> camera dip
+      }
       state.grounded = true;
     }
+    state.landDip = Math.max(0, state.landDip - dt * 3.2);
+
+    // head-bob: driven by actual horizontal speed, fades in/out smoothly
+    const bobTarget = state.grounded && state.speed2D > 0.6 ? Math.min(1, state.speed2D / 8.5) : 0;
+    state.bobAmp += (bobTarget - state.bobAmp) * Math.min(1, 8 * dt);
+    if (state.bobAmp > 0.01) state.bobPhase += dt * (4.4 + state.speed2D * 1.15);
+    const bobY = Math.sin(state.bobPhase * 2) * 0.021 * state.bobAmp;
+
+    // smoothed look velocity for view-model sway (normalized, frame-rate safe)
+    const swayTX = clamp((lookAccX / Math.max(dt, 0.001)) * 0.0006, -1, 1);
+    const swayTY = clamp((lookAccY / Math.max(dt, 0.001)) * 0.0006, -1, 1);
+    const sk = Math.min(1, 14 * dt);
+    state.swayX += (swayTX - state.swayX) * sk;
+    state.swayY += (swayTY - state.swayY) * sk;
+    lookAccX = 0;
+    lookAccY = 0;
 
     // apply to camera
-    camera.position.set(state.pos.x, state.pos.y + eyeHeight(), state.pos.z);
+    const dip = Math.sin(Math.min(1, state.landDip) * Math.PI) * 0.16;
+    camera.position.set(state.pos.x, state.pos.y + eyeHeight() + bobY - dip, state.pos.z);
     camera.rotation.y = state.yaw;
     camera.rotation.x = state.pitch;
   }

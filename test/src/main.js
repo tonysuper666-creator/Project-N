@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710001";
+const BUILD_VERSION = "260710002";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -31,7 +31,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping; // filmic, realistic response
-renderer.toneMappingExposure = 1.05;
+renderer.toneMappingExposure = 1.12;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
@@ -52,6 +52,7 @@ const world = createWorld(scene, {
   // Walking over a loot orb in Area 1 picks it up into the account inventory.
   onLoot(drop) {
     account.addItem(drop.id, drop.qty);
+    audio.pickup();
     const it = ITEM_DB[drop.id];
     ui.toast(`拾取：${it ? it.name : drop.id}${drop.qty > 1 ? " ×" + drop.qty : ""}`);
     // advance accepted collect missions (e.g. data chips)
@@ -64,6 +65,9 @@ const world = createWorld(scene, {
   // Enemy fire that connects: flash the screen, then die/respawn at 0 HP.
   onPlayerHit(dmg) {
     if (dead || !inputState.locked) return;
+    // equipped nano armor soaks 30% of incoming damage
+    const d = account.getData();
+    if (d && d.equipment && d.equipment.armor === "nano_armor") dmg = Math.max(1, Math.round(dmg * 0.7));
     player.state.health = Math.max(0, player.state.health - dmg);
     audio.hurt();
     const flash = document.getElementById("damageFlash");
@@ -77,10 +81,13 @@ const world = createWorld(scene, {
     const ups = account.award(bonus, 30);
     ui.toast(`第 ${wave} 波已清剿 · 奖励 ◈${bonus}，下一波即将来袭`);
     if (ups > 0) celebrateLevelUp();
+    for (const m of recordProgress("wave")) {
+      ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
+    }
     refreshMissionHUD();
   },
-  onWaveSpawn(wave, count) {
-    if (wave > 1) ui.toast(`第 ${wave} 波来袭 · ${count} 名敌人`);
+  onWaveSpawn(wave, count, hasBoss) {
+    if (wave > 1) ui.toast(`第 ${wave} 波来袭 · ${count} 名敌人${hasBoss ? " · ⚠ 重型单位出现" : ""}`);
   },
 });
 const player = createPlayer(camera, world);
@@ -90,7 +97,7 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 // gentle bloom for energy/holo glow only
 composer.addPass(
-  new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.14, 0.4, 1.0)
+  new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.45, 0.95)
 );
 composer.addPass(new OutputPass());
 composer.addPass(new SMAAPass(window.innerWidth, window.innerHeight)); // crisp line art
@@ -161,7 +168,26 @@ function onEnemyKill() {
 function celebrateLevelUp() {
   const d = account.getData();
   audio.levelup();
-  ui.toast(`等级提升！当前 Lv.${d ? d.level : "?"}`);
+  ui.toast(`等级提升！当前 Lv.${d ? d.level : "?"} · 生命上限 +5`);
+  syncLoadout(); // level raises max health
+}
+
+// Push the account's equipment onto the live systems: primary weapon (SMG or
+// AK + skin), gear modifiers, and level-scaled max health.
+function syncLoadout() {
+  const d = account.getData();
+  if (!d) return;
+  const primary = (d.equipment && d.equipment.primary) || "ak47_black";
+  weapons.applyLoadout({
+    primary,
+    reloadMul: d.equipment && d.equipment.gear === "tac_gloves" ? 0.85 : 1,
+  });
+  if (window.__PN_SET_AK_SKIN__) {
+    window.__PN_SET_AK_SKIN__(primary === "ak47_gold" ? "gold" : "black");
+  }
+  const max = Math.min(140, 100 + (d.level - 1) * 5);
+  player.state.maxHealth = max;
+  player.state.health = Math.min(player.state.health, max);
 }
 
 const ui = createUI({
@@ -197,16 +223,16 @@ function die() {
 
 document.getElementById("deathRespawn").addEventListener("click", () => {
   dead = false;
-  player.state.health = 100;
+  player.state.health = player.state.maxHealth;
   deathScreen.classList.add("hidden");
   requestLock();
 });
 
 // --- Med stim (Q) -----------------------------------------------------------
 function useStim() {
-  if (player.state.health >= 100) { ui.toast("生命值已满"); return; }
+  if (player.state.health >= player.state.maxHealth) { ui.toast("生命值已满"); return; }
   if (!account.take("med_stim", 1)) { ui.toast("没有医疗针剂"); return; }
-  player.state.health = Math.min(100, player.state.health + 50);
+  player.state.health = Math.min(player.state.maxHealth, player.state.health + 50);
   audio.heal();
   ui.toast(`使用医疗针剂 +50 · 剩余 ${account.count("med_stim")} 支`);
   if (charPanel && !charPanel.classList.contains("hidden")) renderInventory(charBody);
@@ -354,11 +380,9 @@ function onPointerLockChange() {
   const panelOpen = ui.isOpen() || !charPanel.classList.contains("hidden") || dead;
   overlay.classList.toggle("hidden", inputState.locked || panelOpen);
   crosshair.style.display = inputState.locked ? "block" : "none";
-  if (inputState.locked) refreshMissionHUD(); // pick up level/mission changes made in menus
-  // Sync the in-hand AK skin to the account (gold once unlocked from merchant).
-  if (inputState.locked && window.__PN_SET_AK_SKIN__) {
-    const d = account.getData();
-    window.__PN_SET_AK_SKIN__(d && d.skins && d.skins.ak === "gold" ? "gold" : "black");
+  if (inputState.locked) {
+    refreshMissionHUD(); // pick up level/mission changes made in menus
+    syncLoadout(); // equipment may have changed in the backpack
   }
   if (!inputState.locked) {
     weapons.triggerUp();
@@ -400,7 +424,7 @@ function updateHUD() {
   weaponEl.textContent = hud.name;
   ammoEl.textContent = hud.ammoText;
   sprintEl.textContent = player.state.sprinting ? "开" : "关";
-  healthEl.textContent = String(Math.round(player.state.health));
+  healthEl.textContent = `${Math.round(player.state.health)} / ${player.state.maxHealth}`;
 }
 
 // --- Main loop ----------------------------------------------------------
@@ -418,9 +442,16 @@ function animate(now) {
     world.update(dt, player.state);
     updateInteraction();
     // the base slowly patches you up; out in the field you need med stims
-    if (!world.state.inArea && !dead && player.state.health < 100) {
-      player.state.health = Math.min(100, player.state.health + 4 * dt);
+    if (!world.state.inArea && !dead && player.state.health < player.state.maxHealth) {
+      player.state.health = Math.min(player.state.maxHealth, player.state.health + 4 * dt);
     }
+  }
+
+  // sprint widens the FOV slightly for a sense of speed
+  const fovTarget = player.state.sprinting ? 78 : 72;
+  if (Math.abs(camera.fov - fovTarget) > 0.05) {
+    camera.fov += (fovTarget - camera.fov) * Math.min(1, 9 * dt);
+    camera.updateProjectionMatrix();
   }
 
   composer.render();

@@ -6,11 +6,20 @@ import { audio } from "./audio.js?v=DEV";
 //   auto  -> fires continuously while held
 //   semi  -> one shot per press
 //   melee -> draw-slash on press
+// vm picks the view-model rig; sound picks the shot SFX (default: id).
 const DEFS = [
   { id: "rifle", name: "步枪", mode: "auto", damage: 14, fireRate: 0.1, mag: 30, reserve: 150, reload: 1.4, range: 120, recoil: 0.05, kick: 0.012 },
   { id: "pistol", name: "手枪", mode: "semi", damage: 26, fireRate: 0.2, mag: 12, reserve: 96, reload: 1.0, range: 90, recoil: 0.08, kick: 0.022 },
   { id: "knife", name: "近战刀", mode: "melee", damage: 150, fireRate: 0.42, range: 2.4 },
 ];
+
+// Alternate primary: the looted prototype SMG (equip it in the backpack).
+// Shares the rifle view-model rig for now (dedicated model comes later).
+const SMG_DEF = {
+  id: "smg", name: "原型冲锋枪", mode: "auto", damage: 9, fireRate: 1 / 15,
+  mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
+  vm: "rifle", sound: "smg",
+};
 
 export function createWeapons(camera, scene, world, player, hooks = {}, viewCamera = camera) {
   const ray = new THREE.Raycaster();
@@ -24,15 +33,21 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   muzzle.position.set(0, -0.1, -0.6);
   camera.add(muzzle);
 
-  // 3D impact sparks at hit points.
+  // 3D impact sparks at hit points — a small burst of flying embers.
   const impacts = [];
-  const sparkGeo = new THREE.SphereGeometry(0.06, 6, 6);
+  const sparkGeo = new THREE.TetrahedronGeometry(0.035, 0);
   function spawnImpact(point) {
-    const mat = new THREE.MeshBasicMaterial({ color: 0xffe08a, transparent: true, opacity: 1 });
-    const spark = new THREE.Mesh(sparkGeo, mat);
-    spark.position.copy(point);
-    scene.add(spark);
-    impacts.push({ mesh: spark, life: 0.25, max: 0.25 });
+    for (let i = 0; i < 5; i += 1) {
+      const mat = new THREE.MeshBasicMaterial({ color: i === 0 ? 0xfff3c0 : 0xffc46a, transparent: true, opacity: 1 });
+      const spark = new THREE.Mesh(sparkGeo, mat);
+      spark.position.copy(point);
+      const life = 0.22 + Math.random() * 0.16;
+      impacts.push({
+        mesh: spark, life, max: life,
+        vel: new THREE.Vector3((Math.random() - 0.5) * 3.4, 1 + Math.random() * 2.6, (Math.random() - 0.5) * 3.4),
+      });
+      scene.add(spark);
+    }
   }
 
   const weapons = DEFS.map((def) => ({
@@ -48,18 +63,41 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   }));
 
   let current = weapons[0];
-  vm.setWeapon(current.def.id);
+  vm.setWeapon(current.def.vm || current.def.id);
 
   const SWITCH_TIME = 0.16;
   let equipT = 0;
   let equipPhase = "idle";
   let pendingIndex = -1;
 
+  // Loadout modifiers applied from the equipped gear (set via applyLoadout).
+  const loadout = { reloadMul: 1 };
+
+  // Swap the primary slot / gear modifiers to match the equipped loadout.
+  // Called by the shell when the account's equipment changes.
+  function applyLoadout(opts = {}) {
+    loadout.reloadMul = opts.reloadMul ?? 1;
+    const targetDef = opts.primary === "smg_proto" ? SMG_DEF : DEFS[0];
+    const slot = weapons[0];
+    if (slot.def !== targetDef) {
+      slot.def = targetDef;
+      slot.ammo = targetDef.mag;
+      slot.reserve = targetDef.reserve;
+      slot.reloading = false;
+      slot.recoil = 0;
+      if (current === slot) vm.setWeapon(targetDef.vm || targetDef.id);
+    }
+  }
+
+  // Returns the end point of the shot (hit point, or max range) so the caller
+  // can draw a tracer.
   function damageAt(range, damage) {
     ray.setFromCamera(screenCenter, camera);
     ray.far = range;
     const hits = ray.intersectObjects(world.getHittables(), false);
-    if (hits.length === 0) return;
+    if (hits.length === 0) {
+      return ray.ray.origin.clone().addScaledVector(ray.ray.direction, range);
+    }
     const hit = hits[0];
     spawnImpact(hit.point);
     const obj = hit.object;
@@ -73,6 +111,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       obj.userData.onHit(damage); // e.g. a networked opponent in the 1v1 mode
       if (hooks.onHitmarker) hooks.onHitmarker(false);
     }
+    return hit.point.clone();
   }
 
   function reload() {
@@ -81,6 +120,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (w.ammo === w.def.mag || w.reserve === 0) return;
     w.reloading = true;
     w.reloadStart = performance.now() / 1000;
+    w.reloadDur = w.def.reload * loadout.reloadMul; // gear can speed this up
     audio.reload();
     setTimeout(() => {
       const need = w.def.mag - w.ammo;
@@ -88,7 +128,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       w.ammo += take;
       w.reserve -= take;
       w.reloading = false;
-    }, w.def.reload * 1000);
+    }, w.reloadDur * 1000);
   }
 
   function fireRanged(time) {
@@ -106,8 +146,10 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     player.addPitch(w.def.kick * rm);
     muzzle.intensity = 4.5;
     vm.flash();
-    audio.shot(w.def.id);
-    damageAt(w.def.range, w.def.damage);
+    audio.shot(w.def.sound || w.def.id);
+    const end = damageAt(w.def.range, w.def.damage);
+    // brief bullet tracer (worlds that support it draw the line)
+    if (end && world.spawnPlayerTracer) world.spawnPlayerTracer(camera, end);
   }
 
   function meleeSwing(time) {
@@ -168,7 +210,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       equipT = Math.min(1, equipT + dt / SWITCH_TIME);
       if (equipT >= 1) {
         current = weapons[pendingIndex];
-        vm.setWeapon(current.def.id);
+        vm.setWeapon(current.def.vm || current.def.id);
         equipPhase = "raise";
       }
     } else if (equipPhase === "raise") {
@@ -188,7 +230,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (muzzle.intensity > 0) muzzle.intensity = Math.max(0, muzzle.intensity - dt * 40);
 
     let reloadDip = 0;
-    if (w.reloading) reloadDip = Math.sin(Math.min(1, (time - w.reloadStart) / w.def.reload) * Math.PI);
+    if (w.reloading) reloadDip = Math.sin(Math.min(1, (time - w.reloadStart) / (w.reloadDur || w.def.reload)) * Math.PI);
 
     // --- compose the 3D view-model pose (metres / radians) ---
     let posX = 0;
@@ -204,6 +246,17 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     posX += Math.sin(time * 1.6) * 0.004 * bob;
     posY += Math.sin(time * 3.2) * 0.003 * bob;
     rotZ += Math.sin(time * 1.6) * 0.01 * bob;
+
+    // look-sway: the weapon lags a touch behind fast mouse movement
+    const ps = player.state;
+    if (ps && ps.swayX != null) {
+      rotY += -ps.swayX * 0.028;
+      rotX += -ps.swayY * 0.016;
+      posX += -ps.swayX * 0.008;
+      posY += ps.swayY * 0.005;
+      // landing dip carries into the weapon too
+      if (ps.landDip > 0) posY -= Math.sin(Math.min(1, ps.landDip) * Math.PI) * 0.05;
+    }
 
     posY -= equipT * 0.5; // drop the weapon off-screen while switching
     rotX -= equipT * 1.1;
@@ -230,13 +283,18 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     vm.setPose({ posX, posY, posZ, rotX, rotY, rotZ });
     vm.tick(dt);
 
-    // fade impact sparks
+    // fly + fade impact sparks
     for (let i = impacts.length - 1; i >= 0; i -= 1) {
       const fx = impacts[i];
       fx.life -= dt;
       const k = Math.max(0, fx.life / fx.max);
       fx.mesh.material.opacity = k;
-      fx.mesh.scale.setScalar(0.5 + (1 - k) * 1.5);
+      if (fx.vel) {
+        fx.vel.y -= 9.5 * dt;
+        fx.mesh.position.addScaledVector(fx.vel, dt);
+        fx.mesh.rotation.x += dt * 12;
+        fx.mesh.rotation.y += dt * 9;
+      }
       if (fx.life <= 0) {
         scene.remove(fx.mesh);
         fx.mesh.material.dispose();
@@ -253,5 +311,5 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     };
   }
 
-  return { triggerDown, triggerUp, select, reload, resupply, addReserve, update, getHUD };
+  return { triggerDown, triggerUp, select, reload, resupply, addReserve, applyLoadout, update, getHUD };
 }

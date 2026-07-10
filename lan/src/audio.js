@@ -35,11 +35,12 @@ export const audio = {
       return;
     }
     const pistol = kind === "pistol";
-    const dur = pistol ? 0.12 : 0.17;
+    const smg = kind === "smg";
+    const dur = pistol ? 0.12 : smg ? 0.09 : 0.17;
     const src = c.createBufferSource(); src.buffer = noise(c, dur);
     const f = c.createBiquadFilter(); f.type = "lowpass";
-    f.frequency.setValueAtTime(pistol ? 5200 : 3600, t); f.frequency.exponentialRampToValueAtTime(380, t + dur);
-    const g = c.createGain(); const peak = pistol ? 0.32 : 0.42;
+    f.frequency.setValueAtTime(pistol ? 5200 : smg ? 6200 : 3600, t); f.frequency.exponentialRampToValueAtTime(smg ? 600 : 380, t + dur);
+    const g = c.createGain(); const peak = pistol ? 0.32 : smg ? 0.26 : 0.42;
     g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
     src.connect(f).connect(g).connect(c.destination); src.start(t); src.stop(t + dur);
     const o = c.createOscillator(); o.type = "sine";
@@ -93,6 +94,17 @@ export const audio = {
     const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 700;
     const g2 = c.createGain(); g2.gain.setValueAtTime(0.2, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
     src.connect(f).connect(g2).connect(c.destination); src.start(t); src.stop(t + 0.09);
+  },
+
+  // Loot pickup: short bright two-note blip.
+  pickup() {
+    const c = ac(); if (!c) return;
+    [880, 1320].forEach((freq, i) => {
+      const t = c.currentTime + i * 0.06;
+      const o = c.createOscillator(); o.type = "sine"; o.frequency.setValueAtTime(freq, t);
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.015); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.11);
+      o.connect(g).connect(c.destination); o.start(t); o.stop(t + 0.12);
+    });
   },
 
   heal() {
