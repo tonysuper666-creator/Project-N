@@ -18,7 +18,7 @@ import { xpNeed } from "./account.js?v=DEV";
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260710008";
+const BUILD_VERSION = "260710009";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -362,7 +362,7 @@ function updateInteraction() {
 }
 
 function onKeyDown(e) {
-  if (e.code === "F8") { e.preventDefault(); toggleFullscreen(); return; }
+  if (e.code === "F8" || e.code === "F11") { e.preventDefault(); toggleFullscreen(); return; }
   // Backpack/attributes panel: B or Esc both just close it and resume the game.
   if (!charPanel.classList.contains("hidden")) {
     if (e.code === "KeyB" || e.code === "Escape") closeChar(true);
@@ -413,34 +413,48 @@ function requestLock() {
   renderer.domElement.requestPointerLock?.();
 }
 
-// F8 toggles fullscreen both ways. While fullscreen we take a Keyboard Lock on
-// only the GAMEPLAY keys (so Ctrl+W etc. reach the page instead of closing the
-// tab) — deliberately NOT F8/Escape/F5, so those still work to leave fullscreen.
-// The lock is applied/released by the fullscreenchange handler, so exiting by
-// any means (F8, Esc, browser UI) always releases it.
+// F8 / F11 toggle fullscreen both ways. While fullscreen we take a Keyboard
+// Lock on only the GAMEPLAY keys (so Ctrl+W etc. reach the page instead of
+// closing the tab) — deliberately NOT the fullscreen/refresh keys, so those
+// always work to leave fullscreen. The lock is applied/released by the
+// fullscreenchange handler, so exiting by any route releases it.
 const FS_LOCK_KEYS = [
   "KeyW", "KeyA", "KeyS", "KeyD", "KeyC", "KeyE", "KeyR", "KeyQ", "KeyB",
   "KeyT", "KeyN", "Space", "ShiftLeft", "ShiftRight", "ControlLeft", "ControlRight",
   "Digit1", "Digit2", "Digit3",
 ];
+// Cross-browser fullscreen helpers (Safari/iOS still ship webkit-prefixed).
+function fsElement() {
+  return document.fullscreenElement || document.webkitFullscreenElement || null;
+}
 function enterFullscreen() {
-  document.documentElement.requestFullscreen?.().catch(() => {});
+  const el = document.documentElement;
+  const req = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (!req) return;
+  try { const p = req.call(el); if (p && p.catch) p.catch(() => {}); } catch (_) {}
+}
+function exitFullscreen() {
+  const ex = document.exitFullscreen || document.webkitExitFullscreen;
+  if (!ex) return;
+  try { const p = ex.call(document); if (p && p.catch) p.catch(() => {}); } catch (_) {}
 }
 function toggleFullscreen() {
-  if (!document.fullscreenElement) enterFullscreen();
-  else document.exitFullscreen?.().catch(() => {});
+  if (!fsElement()) enterFullscreen();
+  else exitFullscreen();
 }
-document.addEventListener("fullscreenchange", () => {
+function onFullscreenChange() {
   try {
-    if (document.fullscreenElement) navigator.keyboard?.lock?.(FS_LOCK_KEYS);
+    if (fsElement()) navigator.keyboard?.lock?.(FS_LOCK_KEYS);
     else navigator.keyboard?.unlock?.();
   } catch (_) { /* keyboard lock unsupported (e.g. Firefox) — harmless */ }
-});
+}
+document.addEventListener("fullscreenchange", onFullscreenChange);
+document.addEventListener("webkitfullscreenchange", onFullscreenChange);
 
 // "全屏游戏" button: go fullscreen AND lock the pointer to start playing, all
 // within this one click gesture.
 function fullscreenAndPlay() {
-  if (!document.fullscreenElement) enterFullscreen();
+  if (!fsElement()) enterFullscreen();
   requestLock();
 }
 

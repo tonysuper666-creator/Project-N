@@ -272,16 +272,12 @@ export function createPlayer(camera, world) {
       state.grounded = false;
       coyote = 0;
       jumpBuffer = 0;
-      // Slide-hop: leaving a slide by jumping inherits SPRINT speed (not the
-      // faster slide-peak), so you can't chain slide→jump to keep stacking
-      // speed — the hop is capped at a sprint and its momentum carries in the air.
-      if (state.sliding) {
-        const sprintSp = state.moveSpeed * state.sprintMul;
-        const dm = Math.hypot(state.velX, state.velZ) || 1;
-        state.velX = (state.velX / dm) * sprintSp;
-        state.velZ = (state.velZ / dm) * sprintSp;
-        endSlide();
-      }
+      // Slide-hop: jumping out of a slide KEEPS the slide's high speed, which
+      // then carries through the air (see the airborne branch). This is the
+      // travel move — jump early in the slide to launch near the slide peak.
+      // It can't run away: a fresh slide always resets to a fixed peak, never
+      // adds to your current speed, so hops cap at the slide peak.
+      if (state.sliding) endSlide();
     }
 
     const prevVy = state.vy;
