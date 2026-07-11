@@ -77,6 +77,24 @@ export const PARIS_LOOT = [
   { id: "power_armor", min: 1, max: 1, w: 2 }, // legendary armor
   { id: "minigun", min: 1, max: 1, w: 1 },
 ];
+// Moscow is the hardest campaign (richest drops, highest tier rewards)
+export const MOSCOW_LOOT = [
+  { id: "scrap", min: 1, max: 6, w: 28 },
+  { id: "upgrade_module", min: 1, max: 4, w: 20 }, // most abundant enhancement
+  { id: "weapon_core", min: 1, max: 3, w: 16 }, // core-enhancement focused
+  { id: "alloy_core", min: 1, max: 3, w: 14 }, // richest material drops
+  { id: "data_chip", min: 1, max: 2, w: 12 },
+  { id: "med_stim", min: 1, max: 1, w: 9 },
+  { id: "titan_core", min: 1, max: 1, w: 7 }, // Moscow-exclusive: ultra-premium material
+  { id: "power_armor", min: 1, max: 1, w: 5 }, // legendary armor
+  { id: "exo_frame", min: 1, max: 1, w: 5 }, // legendary gear
+  { id: "laser_rifle", min: 1, max: 1, w: 4 },
+  { id: "sniper", min: 1, max: 1, w: 4 },
+  { id: "auto_rocket", min: 1, max: 1, w: 3 },
+  { id: "minigun", min: 1, max: 1, w: 2 },
+  { id: "ak47_gold", min: 1, max: 1, w: 2 }, // rare weapon variant
+  { id: "laser_sniper", min: 1, max: 1, w: 1 }, // legendary: laser sniper
+];
 // Back-compat alias (older references)
 export const LOOT_TABLE = LONDON_LOOT;
 export function rollLoot(table = LONDON_LOOT) {

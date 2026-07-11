@@ -1,5 +1,5 @@
 import { account } from "./account.js?v=260711010";
-import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711010";
+import { ITEM_DB, LONDON_LOOT, PARIS_LOOT, MOSCOW_LOOT } from "./inventory.js?v=260711010";
 import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711010";
 import { audio } from "./audio.js?v=260711010";
 import { PARTS, MAX_LEVEL, getParts, weaponRarity, tryEnhance, effectiveMods } from "./enhance.js?v=260711010";
@@ -41,6 +41,8 @@ const AREAS = [
     desc: "伦敦街区线性推进：逐段刷新更强的敌人（蓝/紫色为精英），尽头大本钟前迎战首领「钢铁首领」。沿途多个弹药补给点。清关铁门开启，击败首领后原地生成撤离点。" },
   { id: "paris", name: "行动 · 巴黎攻防", diff: "高危", reqLevel: 3, loot: PARIS_LOOT,
     desc: "巴黎林荫大道：穿过凯旋门、绕过环岛广场、沿塞纳河推进，敌人更强更多。尽头埃菲尔铁塔前迎战「铁塔守卫者」。火箭筒/连发火箭筒为本图专属掉落。" },
+  { id: "moscow", name: "行动 · 莫斯科堡垒", diff: "终极", reqLevel: 8, loot: MOSCOW_LOOT,
+    desc: "苏联红场要塞：装甲门→装备库→指挥中心→导弹阵地，敌人数量翻倍、生命值剧增。重装单位把守每一道防线。尽头克里姆林宫前迎战最终首领「红堡守卫者」（HP 7500）。最丰富的战利品掉落，包含钛核心等终极强化材料。" },
 ];
 
 export function createUI(hooks = {}) {

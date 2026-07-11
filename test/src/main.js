@@ -306,7 +306,7 @@ function syncLoadout() {
 const ui = createUI({
   onResume: () => requestLock(),
   onDeploy: (area) => {
-    world.enterArea(area && area.id === "paris" ? "paris" : "london");
+    world.enterArea(area?.id || "london");
     resetRunStats();
     player.state.pos.copy(world.areaSpawn);
     player.state.yaw = 0; // face down the avenue (toward -Z / the boss)
