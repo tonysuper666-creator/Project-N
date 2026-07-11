@@ -9,8 +9,8 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 // Both expose the SAME instance API (group / play / setLocoRate / flash / tick)
 // so world.js can drive them identically. See docs/CREDITS.md for attribution.
 
-const SOLDIER_URL = "./assets/models/Soldier.glb?v=260711010";
-const ROBOT_URL = "./assets/models/RobotExpressive.glb?v=260711010";
+const SOLDIER_URL = "./assets/models/Soldier.glb?v=260711011";
+const ROBOT_URL = "./assets/models/RobotExpressive.glb?v=260711011";
 const TARGET_HEIGHT = 1.85; // metres — sized so a bodyshot lands centre-mass
 
 // Logical clip name -> per-species real clip name.

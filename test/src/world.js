@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711010";
-import { rollLoot, LONDON_LOOT, PARIS_LOOT, MOSCOW_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711010";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711011";
+import { rollLoot, LONDON_LOOT, PARIS_LOOT, MOSCOW_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711011";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711010";
-import { loadCharacter, loadRobot, makeCharacter, characterReady } from "./character.js?v=260711010";
+import { audio } from "./audio.js?v=260711011";
+import { loadCharacter, loadRobot, makeCharacter, characterReady } from "./character.js?v=260711011";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead

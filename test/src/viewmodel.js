@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { buildKnife, makeFlash } from "./models.js?v=260711010";
-import { loadArms } from "./akmodel.js?v=260711010";
+import { buildKnife, makeFlash } from "./models.js?v=260711011";
+import { loadArms } from "./akmodel.js?v=260711011";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 // 3D first-person view-model. Each weapon shows a distinct real GLB gun model
@@ -17,7 +17,7 @@ const GUN_BASE = {
   knife: { pos: [-0.08, -0.13, -0.67], rot: [-0.36, 0.24, -0.52], scale: 1.12 },
 };
 const MODEL_DIR = "./assets/models/guns/";
-const MODEL_VER = "260711010";
+const MODEL_VER = "260711011";
 const loader = new GLTFLoader();
 
 export function createViewmodel(camera) {
