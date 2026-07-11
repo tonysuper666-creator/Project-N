@@ -1131,6 +1131,14 @@ export function createWorld(scene, hooks = {}) {
     const armorMat = new THREE.MeshStandardMaterial({ color: 0x3a3f48, roughness: 0.4, metalness: 0.7 });
     const steelMat = new THREE.MeshStandardMaterial({ color: 0x5a6b7c, roughness: 0.3, metalness: 0.8 });
     const darkConcrete = new THREE.MeshStandardMaterial({ color: 0x4a5566, roughness: 0.85, metalness: 0.05 });
+    // --- enrichment-pass materials (Soviet fortress dressing) -------------
+    const sandbagMat = new THREE.MeshStandardMaterial({ map: loadTex("stone", 1, 1), color: 0x8a7a52, roughness: 0.95 });
+    const brickWallMat = new THREE.MeshStandardMaterial({ map: loadTex("brick_wall", 2, 2), color: 0x6a3a30, roughness: 0.9 });
+    const limestoneMat = new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xb8b6ae, roughness: 0.85 });
+    const rustMat = new THREE.MeshStandardMaterial({ color: 0x4a3020, roughness: 0.85 });
+    const oliveMat = new THREE.MeshStandardMaterial({ color: 0x4a5030, roughness: 0.8 });
+    const redStarMat = new THREE.MeshStandardMaterial({ color: 0xb31217, emissive: 0x8a0d12, emissiveIntensity: 0.55 });
+    const goldTrimMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.6, roughness: 0.35 });
 
     // Road (concrete, utilitarian)
     const roadLength = RL * 2 + 32, roadWidth = SHW * 2 + 12;
@@ -1234,6 +1242,348 @@ export function createWorld(scene, hooks = {}) {
       areaGroup.add(fencePost);
       solids.push(fencePost);
     }
+
+    // =====================================================================
+    // LEVEL-ART ENRICHMENT PASS — additive scenery/cover dressing the four
+    // Soviet-fortress stages + the Kremlin finale. Purely visual + physical
+    // cover; does not touch gates, stages, spawn/extract, or moscowSegments.
+    // Player + enemy movement is clamped to x ∈ [AX-SHW, AX+SHW] (SHW=12),
+    // so any prop placed at |x offset| ≥ 13 is unreachable and needs no
+    // collider — that's how the existing towers/buildings above work too.
+    // =====================================================================
+
+    // -- shared geometry + batches for instanced (draw-call friendly) parts -
+    const hedgehogBeamGeo = new THREE.BoxGeometry(1.9, 0.14, 0.14);
+    const sandbagUnitGeo = new THREE.BoxGeometry(0.8, 0.34, 0.44);
+    const wireCoilGeo = new THREE.TorusGeometry(0.35, 0.09, 8, 16);
+    const hedgehogItems = [];
+    const sandbagItems = [];
+    const wireCoilItems = [];
+
+    // Rotated-footprint AABB — used for colliders on batched/instanced cover
+    // (hedgehogs, sandbag walls) where there's no single mesh to run
+    // Box3().setFromObject() against.
+    function footprintBox(cx, cz, lenX, depthZ, height, ry = 0) {
+      const hx = lenX / 2, hz = depthZ / 2;
+      const c = Math.cos(ry), s = Math.sin(ry);
+      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+      for (const [lx, lz] of [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]]) {
+        const wx = cx + lx * c - lz * s, wz = cz + lx * s + lz * c;
+        minX = Math.min(minX, wx); maxX = Math.max(maxX, wx);
+        minZ = Math.min(minZ, wz); maxZ = Math.max(maxZ, wz);
+      }
+      return new THREE.Box3(new THREE.Vector3(minX, 0, minZ), new THREE.Vector3(maxX, height, maxZ));
+    }
+
+    // Soviet propaganda banner: red field + yellow 5-point star (mirrors
+    // unionJackTexture()/roundelTexture() in buildLondon).
+    function drawCanvasStar(ctx, cx, cy, r, points = 5) {
+      ctx.beginPath();
+      for (let i = 0; i < points * 2; i += 1) {
+        const rad = i % 2 === 0 ? r : r * 0.42;
+        const ang = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+        const px = cx + Math.cos(ang) * rad, py = cy + Math.sin(ang) * rad;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath(); ctx.fill();
+    }
+    function sovietBannerTexture() {
+      const w = 96, h = 132;
+      const c = document.createElement("canvas"); c.width = w; c.height = h;
+      const x = c.getContext("2d");
+      x.fillStyle = "#a3181f"; x.fillRect(0, 0, w, h);
+      x.strokeStyle = "#f0c419"; x.lineWidth = 3; x.strokeRect(6, 6, w - 12, h - 12);
+      x.fillStyle = "#f0c419"; drawCanvasStar(x, w / 2, h * 0.32, 22);
+      return new THREE.CanvasTexture(c);
+    }
+
+    // Procedural 5-point star mesh (extruded shape), used for finials/caps.
+    function starShape(r, points = 5) {
+      const s = new THREE.Shape();
+      for (let i = 0; i < points * 2; i += 1) {
+        const rad = i % 2 === 0 ? r : r * 0.42;
+        const ang = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+        const px = Math.cos(ang) * rad, py = Math.sin(ang) * rad;
+        if (i === 0) s.moveTo(px, py); else s.lineTo(px, py);
+      }
+      s.closePath();
+      return s;
+    }
+    function redStar(x, y, z, scale = 1) {
+      const geo = new THREE.ExtrudeGeometry(starShape(1), { depth: 0.18, bevelEnabled: true, bevelThickness: 0.03, bevelSize: 0.03, bevelSegments: 1 });
+      const m = new THREE.Mesh(geo, redStarMat);
+      m.position.set(x, y, z);
+      m.scale.setScalar(scale);
+      m.castShadow = true;
+      areaGroup.add(m);
+      return m;
+    }
+
+    // Czech hedgehog — 3 crossed steel/rust beams. Batched via instancedFrom;
+    // always collidable (per-instance footprint approximated as a 2x2 box).
+    function hedgehog(x, z, ry = 0) {
+      const wx = AX + x;
+      for (let i = 0; i < 3; i += 1) hedgehogItems.push({ x: wx, y: 0.62, z, ry: ry + (i * Math.PI) / 3, rz: 0.6 });
+      colliders.push(footprintBox(wx, z, 2.0, 2.0, 1.2, 0));
+    }
+
+    // Stacked sandbag wall (3 brick-staggered rows ≈1.1m tall). Batched via
+    // instancedFrom; always collidable.
+    function sandbagWall(x, z, len, ry = 0) {
+      const wx = AX + x;
+      const unitW = 0.8, rows = 3;
+      const count = Math.max(2, Math.round(len / unitW));
+      const actualLen = count * unitW;
+      const c = Math.cos(ry), s = Math.sin(ry);
+      for (let r = 0; r < rows; r += 1) {
+        const y = 0.19 + r * 0.34;
+        const stagger = (r % 2) * (unitW / 2);
+        for (let i = 0; i < count; i += 1) {
+          const lx = -actualLen / 2 + unitW / 2 + i * unitW + stagger;
+          sandbagItems.push({ x: wx + lx * c, y, z: z + lx * s, ry, tint: 0.85 + Math.random() * 0.25 });
+        }
+      }
+      colliders.push(footprintBox(wx, z, actualLen + 0.4, 0.9, 1.15, ry));
+    }
+
+    // Oil drum cluster (n drums around a centre point). Group collider.
+    function drumCluster(x, z, n = 3) {
+      const g = new THREE.Group(); g.position.set(AX + x, 0, z);
+      for (let i = 0; i < n; i += 1) {
+        const a = (i / n) * Math.PI * 2;
+        const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.35, 1.0, 12), i % 2 ? rustMat : oliveMat);
+        drum.position.set(Math.cos(a) * 0.42, 0.5, Math.sin(a) * 0.42);
+        drum.castShadow = true; g.add(drum); solids.push(drum);
+      }
+      areaGroup.add(g);
+      colliders.push(new THREE.Box3().setFromObject(g));
+    }
+
+    // 2-tier olive crate stack (2 bottom + 1 staggered on top). Group collider.
+    function crateStack(cx, cz) {
+      const g = new THREE.Group(); g.position.set(AX + cx, 0, cz);
+      const crateGeo = new THREE.BoxGeometry(1.15, 1.15, 1.15);
+      for (const [dx, dz] of [[-0.62, 0], [0.62, 0]]) {
+        const cr = new THREE.Mesh(crateGeo, oliveMat);
+        cr.position.set(dx, 0.58, dz); cr.castShadow = true; g.add(cr); solids.push(cr);
+      }
+      const top = new THREE.Mesh(crateGeo, oliveMat);
+      top.position.set(0, 1.73, 0.05); top.rotation.y = 0.35; top.castShadow = true; g.add(top); solids.push(top);
+      areaGroup.add(g);
+      colliders.push(new THREE.Box3().setFromObject(g));
+    }
+
+    // Floodlight pylon: tall pole + caged light head. Only ever placed at
+    // |x offset| ≥ 13 (unreachable) — background, no collider.
+    function floodPylon(x, z) {
+      const wx = AX + x;
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.24, 9, 8), steelMat);
+      pole.position.set(wx, 4.5, z); pole.castShadow = true; areaGroup.add(pole); solids.push(pole);
+      const cage = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.5, 8, 1, true), armorMat);
+      cage.position.set(wx, 9.1, z); areaGroup.add(cage);
+      const lightMat = new THREE.MeshStandardMaterial({ color: 0xfff2c8, emissive: 0xffdf8a, emissiveIntensity: 1.4 });
+      const light = new THREE.Mesh(new THREE.SphereGeometry(0.35, 10, 8), lightMat);
+      light.position.set(wx, 9.1, z); areaGroup.add(light);
+    }
+
+    // Charred flatbed truck wreck, tilted. Group collider.
+    function truckWreck(x, z, ry = 0) {
+      const g = new THREE.Group(); g.position.set(AX + x, 0, z); g.rotation.y = ry;
+      const bed = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.4, 5), rustMat);
+      bed.position.set(0, 0.9, 0); bed.rotation.z = 0.1; bed.castShadow = true; g.add(bed); solids.push(bed);
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.6, 1.8), rustMat);
+      cab.position.set(0, 1.1, -2.6); cab.rotation.z = 0.1; cab.castShadow = true; g.add(cab); solids.push(cab);
+      const scorchMat = new THREE.MeshStandardMaterial({ color: 0x17110d, roughness: 0.95 });
+      const scorch = new THREE.Mesh(new THREE.BoxGeometry(2.3, 0.25, 5.4), scorchMat);
+      scorch.position.set(0, 0.1, 0); g.add(scorch);
+      for (const wz of [-1.7, 1.5]) {
+        const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.32, 12), armorMat);
+        wh.rotation.z = Math.PI / 2; wh.position.set(0.9, 0.42, wz); g.add(wh);
+      }
+      areaGroup.add(g);
+      colliders.push(new THREE.Box3().setFromObject(g));
+    }
+
+    // Guard watchtower: 4 thin legs + platform + cabin + searchlight. Only
+    // ever placed at |x offset| ≥ 13 — background, no collider.
+    function watchtower(x, z) {
+      const wx = AX + x, legH = 7;
+      for (const [dx, dz] of [[-1.3, -1.3], [1.3, -1.3], [-1.3, 1.3], [1.3, 1.3]]) {
+        const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.16, legH, 6), steelMat);
+        leg.position.set(wx + dx, legH / 2, z + dz);
+        leg.rotation.z = dx > 0 ? -0.07 : 0.07; leg.rotation.x = dz > 0 ? -0.07 : 0.07;
+        leg.castShadow = true; areaGroup.add(leg); solids.push(leg);
+      }
+      const platform = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.3, 3.4), darkConcrete);
+      platform.position.set(wx, legH, z); areaGroup.add(platform); solids.push(platform);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.1, 2.2), brickWallMat);
+      cabin.position.set(wx, legH + 1.2, z); cabin.castShadow = true; areaGroup.add(cabin); solids.push(cabin);
+      const roofM = new THREE.Mesh(new THREE.ConeGeometry(2.0, 1.2, 4), rustMat);
+      roofM.position.set(wx, legH + 2.85, z); roofM.rotation.y = Math.PI / 4; areaGroup.add(roofM);
+      const searchlight = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.35, 0.5, 10), armorMat);
+      searchlight.position.set(wx + 1.3, legH + 1.2, z); searchlight.rotation.z = Math.PI / 2; areaGroup.add(searchlight);
+    }
+
+    // Propaganda arch: two piers at (±14 from centre) + overhead lintel +
+    // red star + banner. Piers sit at |x offset| ≥ 13 (unreachable) and the
+    // lintel/star/banner are mounted above head height — no collider needed.
+    function propagandaArch(x, z) {
+      const cx = AX + x, pierH = 7;
+      const wxL = cx - 14, wxR = cx + 14;
+      for (const px of [wxL, wxR]) {
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(1.6, pierH, 1.6), limestoneMat);
+        pier.position.set(px, pierH / 2, z); pier.castShadow = true; areaGroup.add(pier); solids.push(pier);
+      }
+      const span = wxR - wxL;
+      const lintel = new THREE.Mesh(new THREE.BoxGeometry(span + 2.2, 1.4, 1.8), limestoneMat);
+      lintel.position.set(cx, pierH + 0.7, z); lintel.castShadow = true; areaGroup.add(lintel); solids.push(lintel);
+      const goldBand = new THREE.Mesh(new THREE.BoxGeometry(span + 2.4, 0.3, 1.9), goldTrimMat);
+      goldBand.position.set(cx, pierH + 1.55, z); areaGroup.add(goldBand);
+      redStar(cx, pierH + 2.6, z, 1.0);
+      const bannerMat = new THREE.MeshBasicMaterial({ map: sovietBannerTexture(), side: THREE.DoubleSide });
+      const banner = new THREE.Mesh(new THREE.PlaneGeometry(3.0, 4.2), bannerMat);
+      banner.position.set(cx, pierH / 2 + 0.5, z - 0.95); areaGroup.add(banner);
+    }
+
+    // Missile silo: cone tip + cylinder body + 4 fin boxes on a round pad.
+    // Only ever placed at |x offset| ≥ 13 — background, no collider.
+    function missileSilo(x, z, h = 14) {
+      const wx = AX + x;
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.4, 0.5, 20), darkConcrete);
+      pad.position.set(wx, 0.25, z); areaGroup.add(pad); solids.push(pad);
+      const bodyH = h * 0.75;
+      const bodyM = new THREE.Mesh(new THREE.CylinderGeometry(1.1, 1.3, bodyH, 14), steelMat);
+      bodyM.position.set(wx, 0.5 + bodyH / 2, z); bodyM.castShadow = true; areaGroup.add(bodyM); solids.push(bodyM);
+      const tipH = h * 0.25;
+      const tip = new THREE.Mesh(new THREE.ConeGeometry(1.1, tipH, 14), armorMat);
+      tip.position.set(wx, 0.5 + bodyH + tipH / 2, z); tip.castShadow = true; areaGroup.add(tip);
+      for (let i = 0; i < 4; i += 1) {
+        const a = (i / 4) * Math.PI * 2;
+        const fin = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.6, 1.0), rustMat);
+        fin.position.set(wx + Math.cos(a) * 1.15, 1.3, z + Math.sin(a) * 1.15);
+        fin.rotation.y = a; areaGroup.add(fin);
+      }
+    }
+
+    // Kremlin tower: layered box tower + band + tapering cone roof + red-star
+    // finial + gold trim (mirrors buildLondon's bigBen()). Background finale
+    // landmark, well beyond the walkable width — no collider.
+    function kremlinTower(bx, bz) {
+      const wx = AX + bx;
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(10, 34, 10), brickWallMat);
+      tower.position.set(wx, 17, bz); tower.castShadow = true; areaGroup.add(tower); solids.push(tower);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(11, 2.4, 11), limestoneMat);
+      band.position.set(wx, 35.2, bz); areaGroup.add(band); solids.push(band);
+      const goldBand = new THREE.Mesh(new THREE.BoxGeometry(11.2, 0.4, 11.2), goldTrimMat);
+      goldBand.position.set(wx, 36.6, bz); areaGroup.add(goldBand);
+      const roofM = new THREE.Mesh(new THREE.ConeGeometry(7.5, 9, 4), rustMat);
+      roofM.position.set(wx, 41.3, bz); roofM.rotation.y = Math.PI / 4; roofM.castShadow = true; areaGroup.add(roofM);
+      redStar(wx, 47.2, bz, 1.4);
+      for (const [dx, dz] of [[-4.6, -4.6], [4.6, -4.6], [-4.6, 4.6], [4.6, 4.6]]) {
+        const turret = new THREE.Mesh(new THREE.CylinderGeometry(0.9, 1.0, 6, 10), brickWallMat);
+        turret.position.set(wx + dx, 3, bz + dz); areaGroup.add(turret);
+        const turretRoof = new THREE.Mesh(new THREE.ConeGeometry(1.1, 2.2, 10), rustMat);
+        turretRoof.position.set(wx + dx, 7.1, bz + dz); areaGroup.add(turretRoof);
+      }
+    }
+
+    // Crenellated fortress wall: wall box + alternating battlement merlons.
+    // Background silhouette dressing — but both placements below have an
+    // inner edge that dips inside the reachable band (|x| ≤ 10..12), so this
+    // gets a collider too, to avoid a walk-through-the-wall visual bug.
+    function crenellatedWall(x, z, len, ry = 0, h = 4) {
+      const wx = AX + x;
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(len, h, 1.2), limestoneMat);
+      wall.position.set(wx, h / 2, z); wall.rotation.y = ry; wall.castShadow = true; areaGroup.add(wall); solids.push(wall);
+      const c = Math.cos(ry), s = Math.sin(ry);
+      const teeth = Math.floor(len / 1.6);
+      for (let i = 0; i < teeth; i += 1) {
+        if (i % 2 === 0) continue; // alternating merlons
+        const lx = -len / 2 + 0.8 + i * 1.6;
+        const merlon = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.9, 1.3), limestoneMat);
+        merlon.position.set(wx + lx * c, h + 0.45, z + lx * s); merlon.rotation.y = ry; areaGroup.add(merlon);
+      }
+      colliders.push(footprintBox(wx, z, len, 1.2, h, ry));
+    }
+
+    // War memorial obelisk with a sandbag ring around the base. Only the
+    // plinth is collidable (matches the "plinth collider" spec).
+    function monumentObelisk(x, z, plinthR = 2.6, obeliskH = 4.5) {
+      const wx = AX + x;
+      const plinth = new THREE.Mesh(new THREE.CylinderGeometry(plinthR, plinthR + 0.3, 0.8, 16), limestoneMat);
+      plinth.position.set(wx, 0.4, z); plinth.castShadow = true; areaGroup.add(plinth); solids.push(plinth);
+      colliders.push(new THREE.Box3().setFromObject(plinth));
+      const obelisk = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.9, obeliskH, 4), limestoneMat);
+      obelisk.position.set(wx, 0.8 + obeliskH / 2, z); obelisk.rotation.y = Math.PI / 4; obelisk.castShadow = true;
+      areaGroup.add(obelisk); solids.push(obelisk);
+      redStar(wx, 0.8 + obeliskH + 0.4, z, 0.7);
+      const ringN = 10;
+      for (let i = 0; i < ringN; i += 1) {
+        const a = (i / ringN) * Math.PI * 2;
+        sandbagItems.push({ x: wx + Math.cos(a) * (plinthR + 0.7), y: 0.17, z: z + Math.sin(a) * (plinthR + 0.7), ry: a });
+      }
+    }
+
+    // ---- APPROACH (z 96–118): propaganda gate + hedgehog chicane ----------
+    propagandaArch(0, 104);
+    floodPylon(13.5, 112); floodPylon(-13.5, 112);
+    floodPylon(13.5, 96); floodPylon(-13.5, 96);
+    for (const [hx, hz] of [[-7, 108], [6, 100], [-5, 94], [8, 90]]) hedgehog(hx, hz);
+    sandbagWall(9, 106, 3); sandbagWall(-9, 106, 3);
+
+    // ---- STAGE1 装甲门前 (z 66–92) ------------------------------------------
+    // NOTE: shifted the 3rd hedgehog from z70 -> z67 (spec listed z70, which
+    // clips ~1m into the existing "装甲门前 I" bunker front face at z70-82).
+    for (const [hx, hz] of [[-9, 88], [9, 82], [-6, 67]]) hedgehog(hx, hz);
+    sandbagWall(10, 76, 4); sandbagWall(-10, 76, 4);
+    watchtower(-16, 84);
+    for (const wz of [90, 82, 74, 68]) {
+      wireCoilItems.push({ x: AX + 11.5, y: 0.35, z: wz, rx: Math.PI / 2 });
+      wireCoilItems.push({ x: AX - 11.5, y: 0.35, z: wz, rx: Math.PI / 2 });
+    }
+    drumCluster(7, 68, 3);
+
+    // ---- STAGE2 装备库 (z 12–58) --------------------------------------------
+    crateStack(-9, 52); crateStack(9, 30); crateStack(-8, 18);
+    drumCluster(9, 46, 3); drumCluster(-9, 22, 3);
+    truckWreck(6, 36, 0.3);
+    // NOTE: shifted the depot shed from z44 -> z34 (spec listed z44, which
+    // overlaps the existing industrial building at local (-18,50) and the
+    // new sandbag wall at z40).
+    (function depotShed() {
+      const shed = new THREE.Mesh(new THREE.BoxGeometry(6, 4, 8), brickWallMat);
+      shed.position.set(AX - 14, 2, 34); shed.castShadow = true; areaGroup.add(shed); solids.push(shed);
+    })();
+    sandbagWall(10, 40, 4); sandbagWall(-10, 40, 4);
+
+    // ---- STAGE3 指挥中心 (z -38–6) -------------------------------------------
+    monumentObelisk(9, -10, 2.6, 4.5);
+    sandbagWall(-9, -4, 3); sandbagWall(9, -28, 3);
+    crenellatedWall(-16, -20, 10, 0, 4);
+
+    // ---- STAGE4 导弹阵地 (z -82–-46) ------------------------------------------
+    missileSilo(-24, -56, 14); missileSilo(24, -74, 14);
+    for (const bx of [9, -9]) {
+      const blastWall = new THREE.Mesh(new THREE.BoxGeometry(4, 1.3, 0.7), concreteMat);
+      blastWall.position.set(AX + bx, 0.65, -68); blastWall.castShadow = true; areaGroup.add(blastWall); solids.push(blastWall);
+      colliders.push(new THREE.Box3().setFromObject(blastWall));
+    }
+    sandbagWall(-9, -52, 4); sandbagWall(9, -78, 4);
+    drumCluster(8, -60, 3);
+
+    // ---- FINALE 克里姆林宫 (boss local (0,-110), extract z-118) --------------
+    kremlinTower(0, -130);
+    crenellatedWall(-14, -100, 20, 0, 4.5);
+    crenellatedWall(14, -100, 20, 0, 4.5);
+    sandbagWall(-8, -100, 3); sandbagWall(8, -92, 3);
+    // NOTE: shifted the 2nd hedgehog from z-84 -> z-83.4 (spec listed z-84,
+    // exactly on GATE_Z_MOSCOW[3]; gate walls must stay unobstructed).
+    hedgehog(-6, -88); hedgehog(7, -83.4);
+
+    // ---- batch the instanced small parts (draw-call friendly) -------------
+    if (hedgehogItems.length) { const m = instancedFrom(hedgehogBeamGeo, rustMat, hedgehogItems); solids.push(m); }
+    if (sandbagItems.length) { const m = instancedFrom(sandbagUnitGeo, sandbagMat, sandbagItems); solids.push(m); }
+    if (wireCoilItems.length) { const m = instancedFrom(wireCoilGeo, steelMat, wireCoilItems); solids.push(m); }
 
     // Deploy and extract points
     areaSpawn.set(AX, 0, RL - 12);
