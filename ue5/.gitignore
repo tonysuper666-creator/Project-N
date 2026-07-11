@@ -1,0 +1,12 @@
+# UE5 build artifacts / generated — never commit these
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+.vs/
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+*.suo
+Build/
