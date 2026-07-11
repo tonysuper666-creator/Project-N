@@ -10,7 +10,7 @@ import { effectiveMods } from "./enhance.js?v=260711010";
 // vm picks the view-model rig; sound picks the shot SFX (default: id).
 const DEFS = [
   { id: "rifle", name: "步枪", mode: "auto", damage: 14, fireRate: 0.1, mag: 30, reserve: 150, reload: 1.4, range: 120, recoil: 0.05, kick: 0.012, vm: "rifle", vmModel: "blaster-g" },
-  { id: "pistol", name: "手枪", mode: "semi", damage: 26, fireRate: 0.2, mag: 12, reserve: 96, reload: 1.0, range: 90, recoil: 0.08, kick: 0.022, vm: "pistol", vmModel: "blaster-a" },
+  { id: "pistol", name: "手枪", mode: "semi", damage: 26, fireRate: 0.2, mag: 12, reserve: 96, reload: 1.0, range: 90, recoil: 0.08, kick: 0.022, vm: "pistol", vmModel: "blaster-a", swayFreq: 2.0, swayAmp: 0.8 },
   { id: "knife", name: "近战刀", mode: "melee", damage: 150, fireRate: 0.42, range: 2.4 },
 ];
 
@@ -20,7 +20,7 @@ const DEFS = [
 const SMG_DEF = {
   id: "smg", name: "原型冲锋枪", mode: "auto", damage: 9, fireRate: 1 / 15,
   mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
-  vm: "rifle", vmModel: "blaster-f", sound: "smg",
+  vm: "rifle", vmModel: "blaster-f", sound: "smg", swayFreq: 2.0, swayAmp: 0.8,
 };
 // Laser: a TRUE continuous beam. While the trigger is held it deals damage and
 // drains ammo every frame (no discrete cadence). `damage` here is DPS; ammo
@@ -38,6 +38,7 @@ const MINIGUN_DEF = {
   mag: 100, reserve: 400, reload: 3.6, range: 120, recoil: 0.03, kick: 0.006,
   vm: "rifle", vmModel: "blaster-j", sound: "minigun", tracer: 0xffb060,
   spinup: true, spinFast: 0.045, spinUp: 0.9, spinDown: 0.7,
+  swayFreq: 1.1, swayAmp: 1.3,
 };
 // Sniper: bolt-action, huge single-shot damage, right-click to scope (narrow
 // FOV + steady). Slow cadence, tiny mag.
@@ -62,6 +63,7 @@ const ROCKET_DEF = {
   mag: 1, reserve: 12, reload: 1.6, recoil: 0.14, kick: 0.05, // +50% faster reload
   vm: "rifle", vmModel: "blaster-h", sound: "rocket", projectile: true,
   projSpeed: 70, projGravity: 6, aoeRadius: 6.5, aoeDamage: 200, projColor: 0xffa040,
+  swayFreq: 1.1, swayAmp: 1.3,
 };
 // Auto rocket launcher: rapid burst of slower, arcing rockets (more drop),
 // smaller each but they add up.
@@ -70,6 +72,7 @@ const AUTO_ROCKET_DEF = {
   mag: 8, reserve: 48, reload: 3.2, recoil: 0.06, kick: 0.02,
   vm: "rifle", vmModel: "blaster-d", sound: "rocket", projectile: true,
   projSpeed: 34, projGravity: 16, aoeRadius: 4.5, aoeDamage: 85, projColor: 0xff7a3a,
+  swayFreq: 1.1, swayAmp: 1.3,
 };
 const PRIMARY_DEFS = {
   smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF,
@@ -346,6 +349,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     beamTube.quaternion.setFromUnitVectors(UP, end.clone().sub(beamFrom).normalize());
     beamTube.visible = true;
     muzzle.intensity = 3;
+    muzzle.color.setHex(0x9fe8ff); // continuous beam is always the energy weapon
     vm.flash();
     if (!beamHumOn) { audio.laserBeam(true); beamHumOn = true; }
   }
@@ -402,6 +406,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     const spread = currentSpread();
     w.bloom = Math.min(1, w.bloom + (cfg.perShot || 0));
     muzzle.intensity = 4.5;
+    muzzle.color.setHex(w.def.beam ? 0x9fe8ff : 0xffd070);
     vm.flash();
     audio.shot(w.def.sound || w.def.id);
     if (w.def.projectile) { spawnRocket(w.def); return; } // explosive projectile, no hitscan
@@ -618,12 +623,16 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     let rotY = 0;
     let rotZ = 0;
 
-    // subtle idle / walk sway so the rig feels alive
+    // subtle idle / walk sway so the rig feels alive — heavier guns sway
+    // slower and wider (data-driven per weapon via swayFreq/swayAmp).
+    const freq = w.def.swayFreq ?? 1.6, amp = w.def.swayAmp ?? 1.0;
     const moving = player.state && player.state.moving;
     const bob = moving ? 1 : 0.35;
-    posX += Math.sin(time * 1.6) * 0.004 * bob;
-    posY += Math.sin(time * 3.2) * 0.003 * bob;
-    rotZ += Math.sin(time * 1.6) * 0.01 * bob;
+    posX += Math.sin(time * freq) * 0.004 * bob * amp;
+    posY += Math.sin(time * freq * 2) * 0.003 * bob * amp;
+    rotZ += Math.sin(time * freq) * 0.01 * bob * amp;
+    // tiny always-on idle breathing, independent of movement/weight
+    posY += Math.sin(time * 0.9) * 0.0006;
 
     // look-sway: the weapon lags a touch behind fast mouse movement
     const ps = player.state;

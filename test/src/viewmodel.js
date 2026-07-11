@@ -50,9 +50,10 @@ export function createViewmodel(camera) {
   });
 
   // --- GLB gun models, built lazily and cached by model key ---
-  const guns = {}; // key -> { group, flash, ready, category, meshes }
+  const guns = {}; // key -> { group, flash, ready, category, meshes, isEnergy, stripMat }
   let currentKey = "knife";
   let flashT = 0;
+  let vmTime = 0; // local time accumulator, drives the energy-strip pulse
   let rifleSkin = "black";
 
   function applySkin(entry) {
@@ -66,11 +67,11 @@ export function createViewmodel(camera) {
     }
   }
 
-  function buildGun(key, category) {
+  function buildGun(key, category, def) {
     const holder = new THREE.Group();
     holder.visible = false;
     poseGroup.add(holder);
-    const entry = { group: holder, flash: null, ready: false, category, meshes: [] };
+    const entry = { group: holder, flash: null, ready: false, category, meshes: [], isEnergy: !!(def && def.beam), stripMat: null };
     guns[key] = entry;
     loader.load(`${MODEL_DIR}${key}.glb?v=${MODEL_VER}`,
       (g) => {
@@ -88,12 +89,32 @@ export function createViewmodel(camera) {
         holder.add(inner);
         holder.position.set(...base.pos);
         holder.rotation.set(...base.rot);
+        // PBR tuning by weapon archetype: energy weapons read as slick/coated,
+        // launchers as duller composite, ballistic guns as workaday gunmetal.
+        const isEnergy = !!(def && def.beam);
+        const isLauncher = !!(def && def.projectile);
         model.traverse((o) => {
-          if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; o.material = o.material.clone(); entry.meshes.push(o); }
+          if (o.isMesh) {
+            o.frustumCulled = false; o.castShadow = false; o.material = o.material.clone();
+            o.material.metalness = isEnergy ? 0.85 : isLauncher ? 0.55 : 0.7;
+            o.material.roughness = isEnergy ? 0.2 : isLauncher ? 0.45 : 0.32;
+            o.material.envMapIntensity = 0.55;
+            entry.meshes.push(o);
+          }
         });
+        // Thin emissive accent strip (content-agnostic — Kenney meshes may be
+        // merged, so we can't target a specific sub-mesh). Colour follows the
+        // weapon's tracer/projectile colour; pulses for energy weapons in tick().
+        const accentColor = (def && (def.tracer ?? def.projColor)) ?? 0xffb060;
+        const stripMat = new THREE.MeshStandardMaterial({ color: accentColor, emissive: accentColor, emissiveIntensity: isEnergy ? 1.0 : 0.4, roughness: 0.3 });
+        const strip = new THREE.Mesh(new THREE.BoxGeometry(size.x * 0.06, size.y * 0.06, size.z * 0.55), stripMat);
+        strip.position.set(0, size.y * 0.28, -size.z * 0.05);
+        model.add(strip);
+        entry.stripMat = stripMat;
+        entry.isEnergy = isEnergy;
         // muzzle flash at the -Z (barrel) tip, in holder space after scaling
         const muzzleZ = -(size.z * 0.5) * s - 0.03;
-        const flash = makeFlash(new THREE.Vector3(0, 0.01, muzzleZ));
+        const flash = makeFlash(new THREE.Vector3(0, 0.01, muzzleZ), isEnergy);
         holder.add(flash);
         holder.traverse((o) => { o.frustumCulled = false; });
         entry.flash = flash;
@@ -126,7 +147,7 @@ export function createViewmodel(camera) {
       if (!def || def.mode === "melee" || def.id === "knife") { currentKey = "knife"; show(); return; }
       const category = def.vm || def.id || "rifle";
       const key = def.vmModel || "blaster-g";
-      if (!guns[key]) buildGun(key, category === "pistol" ? "pistol" : "rifle");
+      if (!guns[key]) buildGun(key, category === "pistol" ? "pistol" : "rifle", def);
       currentKey = key;
       show();
     },
@@ -142,6 +163,7 @@ export function createViewmodel(camera) {
     },
     tick(dt) {
       root.scale.x = camera.aspect / (16 / 9); // aspect-lock (16:9 reference)
+      vmTime += dt;
       if (flashT > 0) {
         flashT -= dt;
         const f = currentKey === "knife" ? null : (guns[currentKey] && guns[currentKey].flash);
@@ -151,6 +173,11 @@ export function createViewmodel(camera) {
           f.scale.setScalar(0.8 + (1 - k) * 0.6);
           if (flashT <= 0) f.visible = false;
         }
+      }
+      // pulse the emissive accent strip on energy/beam weapons only
+      const entry = currentKey === "knife" ? null : guns[currentKey];
+      if (entry && entry.ready && entry.isEnergy && entry.stripMat) {
+        entry.stripMat.emissiveIntensity = 0.85 + Math.sin(vmTime * 4.5) * 0.25;
       }
     },
   };

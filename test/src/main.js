@@ -44,10 +44,35 @@ scene.add(camera);
 const viewScene = new THREE.Scene();
 const viewCamera = new THREE.PerspectiveCamera(72, window.innerWidth / window.innerHeight, 0.01, 10);
 viewScene.add(viewCamera);
-viewScene.add(new THREE.HemisphereLight(0xcfe6ff, 0x35506a, 1.1));
-const vmKey = new THREE.DirectionalLight(0xfff4e0, 2.0);
+viewScene.add(new THREE.HemisphereLight(0xdcefff, 0x25303c, 0.9));
+const vmKey = new THREE.DirectionalLight(0xfff4e0, 2.3);
 vmKey.position.set(0.4, 1, 0.8);
 viewScene.add(vmKey);
+// Cool fill light so the metal/energy accents on the view-model guns don't go
+// flat on the shadow side — complements the warm key light above.
+const vmFill = new THREE.DirectionalLight(0x6fa8ff, 0.45);
+vmFill.position.set(-0.6, 0.3, -0.6);
+viewScene.add(vmFill);
+
+// Shared procedural environment map (cheap gradient sky) so PBR metal/energy
+// materials on both the world and the view-model guns get plausible
+// reflections instead of flat lighting. Generated once via PMREM.
+function makeEnvTexture() {
+  const c = document.createElement("canvas");
+  c.width = 8; c.height = 128;
+  const x = c.getContext("2d");
+  const g = x.createLinearGradient(0, 0, 0, 128);
+  g.addColorStop(0, "#4ad6ff");
+  g.addColorStop(0.45, "#0c1622");
+  g.addColorStop(1, "#1a1410");
+  x.fillStyle = g;
+  x.fillRect(0, 0, 8, 128);
+  return new THREE.CanvasTexture(c);
+}
+const pmrem = new THREE.PMREMGenerator(renderer);
+const envTex = pmrem.fromEquirectangular(Object.assign(makeEnvTexture(), { mapping: THREE.EquirectangularReflectionMapping })).texture;
+scene.environment = envTex;
+viewScene.environment = envTex;
 
 // Per-run haul, shown in the extraction summary.
 const runStats = { kills: 0, coins: 0, xp: 0, waves: 0, loot: {} };
@@ -129,7 +154,7 @@ const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 // gentle bloom for energy/holo glow only
 composer.addPass(
-  new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.2, 0.45, 0.95)
+  new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.25, 0.45, 0.85)
 );
 composer.addPass(new OutputPass());
 composer.addPass(new SMAAPass(window.innerWidth, window.innerHeight)); // crisp line art

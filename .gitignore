@@ -13,3 +13,7 @@ Thumbs.db
 # Node / tooling
 node_modules/
 npm-debug.log*
+
+# Local headless boot-test harness (not committed)
+test/index_local.html
+test/tools/vendor/

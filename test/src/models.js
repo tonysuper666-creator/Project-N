@@ -136,13 +136,34 @@ function makeFlashTex() {
 }
 const FLASH_TEX = makeFlashTex();
 
-// Muzzle flash: additive glowing billboards (cross star + a forward streak),
-// hidden until fired. A shared material drives the fade from the view-model.
-export function makeFlash(pos) {
+// Cyan-white variant for energy/beam weapons (laser rifle, laser sniper) —
+// same radial-gradient approach as the warm texture above, recoloured.
+function makeFlashTexEnergy() {
+  const c = document.createElement("canvas");
+  c.width = 128;
+  c.height = 128;
+  const x = c.getContext("2d");
+  const grd = x.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0.0, "rgba(200,240,255,1)");
+  grd.addColorStop(0.5, "rgba(90,200,255,0.9)");
+  grd.addColorStop(1.0, "rgba(40,150,255,0)");
+  x.fillStyle = grd;
+  x.fillRect(0, 0, 128, 128);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+const FLASH_TEX_ENERGY = makeFlashTexEnergy();
+
+// Muzzle flash: additive glowing billboards (cross star + a forward streak)
+// plus a soft halo behind them, hidden until fired. A shared material drives
+// the fade from the view-model. Pass `energy = true` for beam weapons to get
+// the cyan-white texture instead of the warm orange one.
+export function makeFlash(pos, energy = false) {
   const g = new THREE.Group();
   g.position.copy(pos);
   const mat = new THREE.MeshBasicMaterial({
-    map: FLASH_TEX,
+    map: energy ? FLASH_TEX_ENERGY : FLASH_TEX,
     transparent: true,
     opacity: 0,
     depthWrite: false,
@@ -154,6 +175,9 @@ export function makeFlash(pos) {
   const star2 = star.clone();
   star2.rotation.z = Math.PI / 4;
   g.add(star2);
+  const halo = new THREE.Mesh(new THREE.PlaneGeometry(0.42, 0.42), mat);
+  halo.position.z = 0.02; // soft glow behind the star, toward the receiver
+  g.add(halo);
   const streak = new THREE.Mesh(new THREE.PlaneGeometry(0.5, 0.13), mat);
   streak.position.z = -0.14; // reach down the barrel
   g.add(streak);
