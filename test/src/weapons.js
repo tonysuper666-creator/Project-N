@@ -21,12 +21,14 @@ const SMG_DEF = {
   mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
   vm: "rifle", sound: "smg",
 };
-// Laser: a continuous energy stream — a very short cycle so holding fire reads
-// as one uninterrupted beam. Low per-tick damage keeps the sustained DPS sane.
+// Laser: a TRUE continuous beam. While the trigger is held it deals damage and
+// drains ammo every frame (no discrete cadence). `damage` here is DPS; ammo
+// drains at `drainRate` rounds/sec (kept at the old 25/s so a mag lasts ~4s).
 const LASER_DEF = {
-  id: "laser", name: "激光步枪", mode: "auto", damage: 5, fireRate: 0.04,
-  mag: 100, reserve: 300, reload: 1.3, range: 160, recoil: 0.006, kick: 0.001,
+  id: "laser", name: "激光步枪", mode: "auto", damage: 130, fireRate: 0,
+  mag: 100, reserve: 300, reload: 1.3, range: 160, recoil: 0, kick: 0,
   vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
+  beamContinuous: true, drainRate: 25,
 };
 // Gatling: spins up while the trigger is held — the barrel cadence climbs from
 // `fireRate` (spun-down) toward `spinFast` (spun-up). 100-round belt, slow reload.
@@ -36,7 +38,25 @@ const MINIGUN_DEF = {
   vm: "rifle", sound: "minigun", tracer: 0xffb060,
   spinup: true, spinFast: 0.045, spinUp: 0.9, spinDown: 0.7,
 };
-const PRIMARY_DEFS = { smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF };
+// Sniper: bolt-action, huge single-shot damage, right-click to scope (narrow
+// FOV + steady). Slow cadence, tiny mag.
+const SNIPER_DEF = {
+  id: "sniper", name: "反器材狙击枪", mode: "semi", damage: 150, fireRate: 1.1,
+  mag: 5, reserve: 30, reload: 2.6, range: 320, recoil: 0.16, kick: 0.05,
+  vm: "rifle", sound: "sniper", tracer: 0xfff2c0,
+  scope: true, zoomFov: 28,
+};
+// Laser sniper (联狙): single instant high-damage energy bolt, scoped.
+const LASER_SNIPER_DEF = {
+  id: "lasersniper", name: "激光狙击枪", mode: "semi", damage: 130, fireRate: 0.9,
+  mag: 6, reserve: 36, reload: 2.2, range: 340, recoil: 0.09, kick: 0.03,
+  vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
+  scope: true, zoomFov: 32,
+};
+const PRIMARY_DEFS = {
+  smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF,
+  sniper: SNIPER_DEF, laser_sniper: LASER_SNIPER_DEF,
+};
 
 // Spread tuning (radians): standing-still baseline + per-shot bloom.
 const SPREAD = {
@@ -45,6 +65,8 @@ const SPREAD = {
   pistol: { base: 0.0015, perShot: 0.2 },
   laser: { base: 0.0006, perShot: 0.05 }, // pinpoint energy weapon
   minigun: { base: 0.004, perShot: 0.05 }, // sprays, but bloom builds slowly
+  sniper: { base: 0.0004, perShot: 0.28 }, // pinpoint scoped, big bloom if spammed
+  lasersniper: { base: 0.0003, perShot: 0.24 },
 };
 
 export function createWeapons(camera, scene, world, player, hooks = {}, viewCamera = camera) {
@@ -58,6 +80,29 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   const muzzle = new THREE.PointLight(0xffd070, 0, 8, 2);
   muzzle.position.set(0, -0.1, -0.6);
   camera.add(muzzle);
+
+  // Persistent beam for continuous-fire weapons (laser): one steady line +
+  // glow tube updated every frame while held, rather than per-shot tracers.
+  const UP = new THREE.Vector3(0, 1, 0);
+  const beamGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3(0, 0, -1)]);
+  const beamLine = new THREE.Line(beamGeo, new THREE.LineBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.95 }));
+  beamLine.visible = false; beamLine.frustumCulled = false;
+  scene.add(beamLine);
+  const beamTube = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1, 6), new THREE.MeshBasicMaterial({ color: 0x66e0ff, transparent: true, opacity: 0.4 }));
+  beamTube.visible = false; beamTube.frustumCulled = false;
+  scene.add(beamTube);
+  let beamHumOn = false;
+
+  // Aim-down-sight (right mouse). Scoped weapons narrow the FOV a lot + show a
+  // scope overlay; other guns get a mild zoom.
+  let aiming = false;
+  function aimDown() { if (current.def.mode !== "melee") aiming = true; }
+  function aimUp() { aiming = false; }
+  function getADS() {
+    const def = current.def;
+    if (!aiming || def.mode === "melee" || equipPhase !== "idle") return { aiming: false, fov: null, scope: false };
+    return { aiming: true, fov: def.scope ? def.zoomFov : 58, scope: !!def.scope };
+  }
 
   // 3D impact sparks at hit points — a small burst of flying embers.
   const impacts = [];
@@ -104,6 +149,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (!ps.grounded) s += 0.02; // jump-shots go wide
       if (ps.crouching) s *= 0.6; // crouch tightens the cone
     }
+    if (aiming) s *= 0.3; // aiming down sight steadies the shot
     return s;
   }
 
@@ -128,11 +174,14 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     const targetDef = PRIMARY_DEFS[opts.primary] || DEFS[0];
     const slot = weapons[0];
     if (slot.def !== targetDef) {
+      beamOff();
       slot.def = targetDef;
       slot.ammo = targetDef.mag;
       slot.reserve = targetDef.reserve;
       slot.reloading = false;
       slot.recoil = 0;
+      slot.ammoFrac = 0;
+      slot.spin = 0;
       if (current === slot) vm.setWeapon(targetDef.vm || targetDef.id);
     }
   }
@@ -177,6 +226,59 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (hooks.onHitmarker) hooks.onHitmarker(false);
     }
     return hit.point.clone();
+  }
+
+  // --- continuous laser beam: damage + ammo drain + steady visual per frame ---
+  const beamFrom = new THREE.Vector3();
+  function beamTick(dt) {
+    const w = current;
+    // drain ammo at the weapon's rounds/sec rate (kept as before)
+    w.ammoFrac = (w.ammoFrac || 0) + dt * (w.def.drainRate || 25);
+    while (w.ammoFrac >= 1 && w.ammo > 0) { w.ammoFrac -= 1; w.ammo -= 1; }
+    // raycast for the impact point + apply continuous (DPS × dt) damage
+    ray.setFromCamera(screenCenter, camera);
+    ray.far = w.def.range;
+    const hits = ray.intersectObjects(world.getHittables(), false);
+    let end;
+    if (hits.length) {
+      const hit = hits[0];
+      end = hit.point;
+      const obj = hit.object;
+      const dmg = w.def.damage * dt; // damage is DPS for the beam
+      if (obj.userData && obj.userData.type === "enemy") {
+        const isHead = obj.userData.part === "head";
+        const ctrl = obj.userData.enemy;
+        const killed = world.damageEnemy(ctrl, isHead ? dmg * 2 : dmg);
+        if (killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { headshot: isHead, heavy: !!ctrl.heavy });
+      } else if (obj.userData && obj.userData.type === "target") {
+        world.damageTarget(obj, dmg);
+      } else if (obj.userData && typeof obj.userData.onHit === "function") {
+        obj.userData.onHit(dmg);
+      }
+      if (Math.random() < dt * 26) spawnImpact(hit.point); // occasional sparks
+    } else {
+      end = ray.ray.origin.clone().addScaledVector(ray.ray.direction, w.def.range);
+    }
+    // steady beam from the muzzle to the impact
+    camera.getWorldPosition(beamFrom);
+    camera.getWorldDirection(camDir);
+    camRight.crossVectors(camDir, camera.up).normalize();
+    beamFrom.addScaledVector(camRight, 0.14).addScaledVector(camera.up, -0.12).addScaledVector(camDir, 0.55);
+    beamGeo.setFromPoints([beamFrom, end]);
+    beamLine.visible = true;
+    const len = Math.max(0.01, beamFrom.distanceTo(end));
+    beamTube.position.copy(beamFrom).add(end).multiplyScalar(0.5);
+    beamTube.scale.set(1, len, 1);
+    beamTube.quaternion.setFromUnitVectors(UP, end.clone().sub(beamFrom).normalize());
+    beamTube.visible = true;
+    muzzle.intensity = 3;
+    vm.flash();
+    if (!beamHumOn) { audio.laserBeam(true); beamHumOn = true; }
+  }
+  function beamOff() {
+    if (beamLine.visible) beamLine.visible = false;
+    if (beamTube.visible) beamTube.visible = false;
+    if (beamHumOn) { audio.laserBeam(false); beamHumOn = false; }
   }
 
   function reload() {
@@ -285,7 +387,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (equipPhase !== "idle") return;
     if (current.def.mode === "auto") {
       current.firing = true;
-      fireRanged(time);
+      if (!current.def.beamContinuous) fireRanged(time); // beam is driven in update()
     } else if (current.def.mode === "semi") {
       fireRanged(time);
     } else {
@@ -306,6 +408,8 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     pendingIndex = index;
     equipPhase = "lower";
     current.firing = false;
+    aiming = false;
+    beamOff();
   }
 
   function update(dt, time) {
@@ -338,7 +442,15 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (equipT <= 0) equipPhase = "idle";
     }
 
-    if (current.def.mode === "auto" && current.firing && equipPhase === "idle") fireRanged(time);
+    // continuous laser beam is driven here (steady damage + visual); every
+    // other case falls back to the discrete auto-fire / melee paths.
+    if (current.def.beamContinuous && current.firing && !current.reloading && current.ammo > 0 && equipPhase === "idle") {
+      beamTick(dt);
+    } else {
+      beamOff();
+      if (current.def.beamContinuous && current.firing && current.ammo <= 0 && !current.reloading && equipPhase === "idle") reload();
+      if (current.def.mode === "auto" && !current.def.beamContinuous && current.firing && equipPhase === "idle") fireRanged(time);
+    }
     if (current.def.mode === "melee" && current.firing && equipPhase === "idle") meleeSwing(time);
 
     const w = current;
@@ -416,6 +528,9 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       rotX += w.recoil * 0.2; // only a hint of muzzle rise
     }
 
+    // scoped aiming: drop the view-model out of the way behind the scope overlay
+    if (aiming && w.def.scope) { posY -= 0.5; posX += 0.05; }
+
     vm.setPose({ posX, posY, posZ, rotX, rotY, rotZ });
     vm.tick(dt);
 
@@ -447,5 +562,5 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     };
   }
 
-  return { triggerDown, triggerUp, select, reload, resupply, addReserve, applyLoadout, update, getHUD, getSpread: currentSpread };
+  return { triggerDown, triggerUp, aimDown, aimUp, getADS, select, reload, resupply, addReserve, applyLoadout, update, getHUD, getSpread: currentSpread };
 }

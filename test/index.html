@@ -29,6 +29,13 @@
       <i class="ch t"></i><i class="ch b"></i><i class="ch l"></i><i class="ch r"></i><i class="ch dot"></i>
     </div>
     <div id="hitmarker" aria-hidden="true"></div>
+    <!-- sniper scope overlay (shown while right-click aiming a scoped weapon) -->
+    <div id="scopeOverlay" aria-hidden="true">
+      <div class="scope-ring"></div>
+      <i class="scope-line sv"></i><i class="scope-line sh"></i>
+      <i class="scope-tick tup"></i><i class="scope-tick tdn"></i>
+      <i class="scope-tick tlf"></i><i class="scope-tick trt"></i>
+    </div>
     <div id="killBanner" aria-hidden="true"><span class="kb-icon">💀</span><span class="kb-text">击杀</span></div>
     <div id="prompt"></div>
 
@@ -66,6 +73,15 @@
 
     <div id="missionTracker" aria-hidden="true"></div>
     <div id="damageFlash" aria-hidden="true"></div>
+
+    <!-- top-center: boss health bar (shown only during the boss fight) -->
+    <div id="bossBar" aria-hidden="true">
+      <div class="boss-name" id="bossName">最终首领</div>
+      <div class="boss-track"><div class="boss-fill" id="bossFill"></div></div>
+    </div>
+
+    <!-- top-center: stage / route progress banner -->
+    <div id="stageBanner" aria-hidden="true"></div>
 
     <!-- ===== Death screen ===== -->
     <div id="deathScreen" class="hidden">

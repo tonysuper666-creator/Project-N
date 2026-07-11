@@ -95,7 +95,7 @@ export function createPlayer(camera, world) {
 
   // Called from the mouse-move handler while pointer is locked.
   function look(dx, dy) {
-    const s = state.lookSens || 1;
+    const s = (state.lookSens || 1) * (state.aimSensMul || 1);
     state.yaw -= dx * 0.0024 * s;
     state.pitch = clamp(state.pitch - dy * 0.0019 * s, -1.5, 1.5);
     lookAccX += dx;

@@ -20,11 +20,20 @@ const GOLD_AK_COST = [{ id: "scrap", qty: 8 }, { id: "data_chip", qty: 3 }];
 const WEAPON_EXCHANGES = [
   { id: "laser_rifle", tag: "史诗", tagCls: "diff-普通",
     cost: [{ id: "alloy_core", qty: 2 }, { id: "data_chip", qty: 4 }],
-    desc: "定向能量武器，扣下扳机即持续不间断输出，弹道笔直、后坐极低。" },
+    desc: "定向能量武器，扣下扳机即持续不间断的激光光束，弹道笔直、后坐极低。" },
+  { id: "sniper", tag: "史诗", tagCls: "diff-普通",
+    cost: [{ id: "alloy_core", qty: 2 }, { id: "scrap", qty: 10 }],
+    desc: "反器材栓动狙击枪，右键开镜，单发伤害巨高、爆头秒杀。" },
   { id: "minigun", tag: "传说", tagCls: "diff-高危",
     cost: [{ id: "alloy_core", qty: 4 }, { id: "scrap", qty: 12 }, { id: "data_chip", qty: 3 }],
     desc: "重型转膛机枪，持续开火逐渐提高转速与射速，单弹夹 100 发，换弹缓慢。" },
+  { id: "laser_sniper", tag: "传说", tagCls: "diff-高危",
+    cost: [{ id: "alloy_core", qty: 5 }, { id: "data_chip", qty: 5 }],
+    desc: "单发式激光狙击（联狙），右键开镜，瞬发笔直光束、超高单发伤害。" },
 ];
+
+// Revive tokens: consumed automatically on death to respawn in place.
+const REVIVE_COST = [{ id: "scrap", qty: 6 }, { id: "data_chip", qty: 2 }];
 
 const AREAS = [
   { id: "area1", name: "AREA 1 · 密林前哨", diff: "普通", reqLevel: 1,
@@ -149,6 +158,22 @@ export function createUI(hooks = {}) {
       });
       body.appendChild(wr);
     }
+
+    // --- revive tokens (materials): auto-consumed on death to respawn in place ---
+    const rc = document.createElement("div");
+    rc.className = "listRow tall";
+    const heldRevive = account.count("revive_coin");
+    rc.innerHTML = `<div class="rowText"><span class="rowName">复活币 <em class="diff diff-高危">传说</em> <span class="rowMeta">持有 ${heldRevive}</span></span>
+      <span class="rowDesc">阵亡时自动消耗一枚，在原地满血复活（不返回基地）。材料：${costText(REVIVE_COST)}</span></div>
+      <button class="rowBtn deploy">兑换</button>`;
+    rc.querySelector(".rowBtn").addEventListener("click", () => {
+      if (!canAfford(REVIVE_COST)) { toast("材料不足"); return; }
+      for (const c of REVIVE_COST) account.take(c.id, c.qty);
+      account.addItem("revive_coin", 1);
+      rc.querySelector(".rowMeta").textContent = `持有 ${account.count("revive_coin")}`;
+      toast("已兑换：复活币 ×1");
+    });
+    body.appendChild(rc);
 
     // --- consumables (coins) ---
     for (const item of VENDOR_ITEMS) {

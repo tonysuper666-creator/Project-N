@@ -124,6 +124,16 @@ const healthEl = document.getElementById("health");
 const weaponEl = document.getElementById("weapon");
 const sprintEl = document.getElementById("sprint");
 const promptEl = document.getElementById("prompt");
+const scopeEl = document.getElementById("scopeOverlay");
+
+// Toggle the sniper scope overlay (and hide the crosshair while scoped).
+let scopeOn = false;
+function applyScope(on) {
+  if (on === scopeOn) return;
+  scopeOn = on;
+  if (scopeEl) scopeEl.classList.toggle("show", on);
+  if (crosshair) crosshair.style.visibility = on ? "hidden" : "";
+}
 
 // In-game character / backpack panel (toggle with B).
 const charPanel = document.getElementById("charPanel");
@@ -317,8 +327,20 @@ const deathScreen = document.getElementById("deathScreen");
 let dead = false;
 
 function die() {
-  dead = true;
   weapons.triggerUp();
+  // Revive coin: if you're out in the field and hold one, spend it to get back
+  // up on the spot at full health instead of being hauled back to base.
+  if (world.state.inArea && account.count("revive_coin") > 0) {
+    account.take("revive_coin", 1);
+    player.state.health = player.state.maxHealth;
+    audio.levelup();
+    ui.toast(`复活币已消耗 · 原地满血复活（剩余 ${account.count("revive_coin")} 枚）`);
+    const flash = document.getElementById("damageFlash");
+    if (flash) { flash.classList.remove("show"); }
+    if (charPanel && !charPanel.classList.contains("hidden")) renderInventory(charBody);
+    return;
+  }
+  dead = true;
   const d = account.getData();
   if (d) { d.stats.deaths += 1; account.save(d); }
   // the recovery system hauls you back to base; loot stays with you
@@ -472,10 +494,12 @@ function onMouseMove(e) {
 function onMouseDown(e) {
   if (!inputState.locked) return;
   if (e.button === 0) weapons.triggerDown(performance.now() / 1000);
+  else if (e.button === 2) weapons.aimDown(); // right-click: aim down sight
 }
 
 function onMouseUp(e) {
   if (e.button === 0) weapons.triggerUp();
+  else if (e.button === 2) weapons.aimUp();
 }
 
 function requestLock() {
@@ -572,6 +596,7 @@ window.addEventListener("keyup", onKeyUp);
 window.addEventListener("mousemove", onMouseMove);
 window.addEventListener("mousedown", onMouseDown);
 window.addEventListener("mouseup", onMouseUp);
+window.addEventListener("contextmenu", (e) => { if (inputState.locked) e.preventDefault(); }); // right-click aims, no menu
 document.addEventListener("pointerlockchange", onPointerLockChange);
 
 // Losing focus can drop keyup events — clear held keys so nothing sticks.
@@ -718,12 +743,17 @@ function animate(now) {
     }
   }
 
-  // sprint widens the FOV slightly for a sense of speed
-  const fovTarget = player.state.sliding ? 82 : player.state.sprinting ? 78 : 72;
+  // aim-down-sight overrides FOV (zoom); otherwise sprint widens it for speed
+  const ads = weapons.getADS();
+  const fovTarget = ads.fov != null ? ads.fov
+    : player.state.sliding ? 82 : player.state.sprinting ? 78 : 72;
   if (Math.abs(camera.fov - fovTarget) > 0.05) {
-    camera.fov += (fovTarget - camera.fov) * Math.min(1, 9 * dt);
+    camera.fov += (fovTarget - camera.fov) * Math.min(1, (ads.aiming ? 16 : 9) * dt);
     camera.updateProjectionMatrix();
   }
+  // zoomed aim slows the look for precision; scope overlay + hidden crosshair
+  player.state.aimSensMul = ads.aiming ? (ads.scope ? 0.35 : 0.62) : 1;
+  applyScope(ads.scope);
 
   composer.render();
   // draw the view-model on top with a fresh depth buffer (no world clipping)

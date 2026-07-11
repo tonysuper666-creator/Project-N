@@ -1064,3 +1064,63 @@ body.playing #minimap { display: inline-block; }
   .pf-body { grid-template-columns: 1fr; }
   .pf-canvas { width: 100%; height: 320px; }
 }
+
+/* ===== Sniper scope overlay ===== */
+#scopeOverlay {
+  position: fixed; inset: 0; z-index: 40; pointer-events: none;
+  opacity: 0; transition: opacity 0.12s ease; display: none;
+}
+#scopeOverlay.show { opacity: 1; display: block; }
+/* black surround with a circular cut-out via a huge shadow on the ring */
+#scopeOverlay .scope-ring {
+  position: absolute; top: 50%; left: 50%;
+  width: 78vh; height: 78vh; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.92), inset 0 0 0 2px rgba(0,0,0,0.9), inset 0 0 40px 14px rgba(0,0,0,0.75);
+  border: 2px solid rgba(150, 210, 160, 0.5);
+}
+#scopeOverlay .scope-line {
+  position: absolute; top: 50%; left: 50%; background: rgba(20, 30, 22, 0.9);
+}
+#scopeOverlay .scope-line.sv { width: 1px; height: 78vh; transform: translate(-50%, -50%); }
+#scopeOverlay .scope-line.sh { width: 78vh; height: 1px; transform: translate(-50%, -50%); }
+#scopeOverlay .scope-tick { position: absolute; top: 50%; left: 50%; background: rgba(20,30,22,0.9); }
+#scopeOverlay .scope-tick.tup { width: 2px; height: 10vh; transform: translate(-50%, -160%); }
+#scopeOverlay .scope-tick.tdn { width: 2px; height: 10vh; transform: translate(-50%, 60%); }
+#scopeOverlay .scope-tick.tlf { width: 10vh; height: 2px; transform: translate(-160%, -50%); }
+#scopeOverlay .scope-tick.trt { width: 10vh; height: 2px; transform: translate(60%, -50%); }
+
+/* ===== Boss health bar (top center) ===== */
+#bossBar {
+  position: fixed; top: 18px; left: 50%; transform: translateX(-50%);
+  width: min(680px, 76vw); z-index: 38; text-align: center;
+  opacity: 0; transition: opacity 0.25s ease; pointer-events: none;
+}
+#bossBar.show { opacity: 1; }
+#bossBar .boss-name {
+  font-size: 15px; font-weight: 800; letter-spacing: 4px; color: #ffdada;
+  text-shadow: 0 2px 6px rgba(0,0,0,0.7); margin-bottom: 5px;
+}
+#bossBar .boss-track {
+  height: 16px; border-radius: 9px; background: rgba(20, 6, 10, 0.8);
+  border: 1px solid rgba(255, 90, 90, 0.55); overflow: hidden;
+  box-shadow: 0 4px 18px rgba(0,0,0,0.5), inset 0 0 10px rgba(0,0,0,0.6);
+}
+#bossBar .boss-fill {
+  height: 100%; width: 100%;
+  background: linear-gradient(90deg, #ff3b3b, #ff7a3b 70%, #ffd23b);
+  box-shadow: 0 0 12px rgba(255, 80, 60, 0.8); transition: width 0.18s ease;
+}
+
+/* ===== Stage / route banner (top center, transient) ===== */
+#stageBanner {
+  position: fixed; top: 62px; left: 50%; transform: translateX(-50%) translateY(-8px);
+  z-index: 37; padding: 8px 22px; border-radius: 10px;
+  background: linear-gradient(180deg, rgba(14,22,30,0.9), rgba(8,14,20,0.9));
+  border: 1px solid rgba(127, 209, 255, 0.4); color: #eaf4ff;
+  font-size: 15px; font-weight: 700; letter-spacing: 2px; white-space: nowrap;
+  opacity: 0; transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: none;
+  box-shadow: 0 8px 26px rgba(0,0,0,0.5);
+}
+#stageBanner.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+#stageBanner .sb-sub { display: block; font-size: 12px; font-weight: 500; opacity: 0.7; letter-spacing: 1px; margin-top: 2px; }

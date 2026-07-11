@@ -8,6 +8,8 @@ export const ITEM_DB = {
   smg_proto: { name: "原型冲锋枪", type: "primary", rarity: "epic", icon: "🔫", stats: { 伤害: 9, 射速: 900 }, desc: "实验型高射速冲锋枪，Area 区域掉落。装备为主武器后即可使用。" },
   laser_rifle: { name: "激光步枪", type: "primary", rarity: "epic", icon: "🔫", stats: { 伤害: 13, 射速: 720, 射程: 160 }, desc: "定向能量武器，弹道笔直、后坐极低、射程远。装备为主武器后即可使用。" },
   minigun: { name: "加特林", type: "primary", rarity: "legend", icon: "🔫", stats: { 伤害: 8, 射速: 1200, 弹匣: 120 }, desc: "重型转膛机枪，超高射速与弹匣，换弹缓慢。装备为主武器后即可使用。" },
+  sniper: { name: "反器材狙击枪", type: "primary", rarity: "epic", icon: "🎯", stats: { 伤害: 150, 弹匣: 5, 射程: 320 }, desc: "栓动反器材步枪，右键开镜，单发伤害巨高，爆头几乎秒杀。装备为主武器后即可使用。" },
+  laser_sniper: { name: "激光狙击枪", type: "primary", rarity: "legend", icon: "🎯", stats: { 伤害: 130, 弹匣: 6, 射程: 340 }, desc: "单发式激光狙击（联狙），右键开镜，瞬发笔直光束、超高单发伤害。装备为主武器后即可使用。" },
   pistol_std: { name: "制式手枪", type: "secondary", rarity: "common", icon: "🔫", stats: { 伤害: 26, 射速: 300 }, desc: "可靠的副武器。" },
   combat_knife: { name: "作战匕首", type: "melee", rarity: "common", icon: "🗡️", stats: { 伤害: 150 }, desc: "近身致命。" },
   nano_armor: { name: "纳米护甲", type: "armor", rarity: "epic", icon: "🛡️", stats: { 减伤: "30%" }, desc: "装备后受到的伤害降低 30%。" },
@@ -18,6 +20,7 @@ export const ITEM_DB = {
   scrap: { name: "合金废料", type: "material", rarity: "common", icon: "⚙️", stats: {}, desc: "通用制造材料，可在商人处兑换武器。" },
   alloy_core: { name: "合金核心", type: "material", rarity: "epic", icon: "🔩", stats: {}, desc: "高级制造材料，稀有掉落。" },
   data_chip: { name: "数据芯片", type: "material", rarity: "rare", icon: "💾", stats: {}, desc: "用于解锁与升级。" },
+  revive_coin: { name: "复活币", type: "material", rarity: "legend", icon: "🪙", stats: {}, desc: "阵亡时自动消耗一枚，在原地满血复活。可在商人处购买。" },
 };
 
 // Drop table for Area enemies: mostly materials, small chance of a finished
@@ -31,8 +34,10 @@ const LOOT_TABLE = [
   { id: "tac_gloves", min: 1, max: 1, w: 4 }, // gear: gloves
   { id: "smg_proto", min: 1, max: 1, w: 4 }, // weapon: SMG
   { id: "laser_rifle", min: 1, max: 1, w: 3 }, // weapon: laser rifle
+  { id: "sniper", min: 1, max: 1, w: 3 }, // weapon: sniper rifle
   { id: "combat_pack", min: 1, max: 1, w: 2 }, // gear: tactical pack
   { id: "ak47_gold", min: 1, max: 1, w: 2 }, // rare: gold AK directly
+  { id: "laser_sniper", min: 1, max: 1, w: 1 }, // legendary: laser sniper
   { id: "minigun", min: 1, max: 1, w: 1 }, // legendary: gatling
 ];
 export function rollLoot() {
