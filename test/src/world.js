@@ -634,6 +634,7 @@ export function createWorld(scene, hooks = {}) {
   // winding map (Paris) is a chain of segments so the route can bend. --------
   const londonSegments = [{ minX: AXL - SHW, maxX: AXL + SHW, minZ: -RL, maxZ: RL }];
   const parisSegments = []; // filled by buildParis
+  const moscowSegments = []; // filled by buildMoscow
   let activeSegments = londonSegments;
   const clampMargin = 0.9; // keep the player off the exact wall (radius)
   function clampToArea(pos) {
@@ -657,7 +658,6 @@ export function createWorld(scene, hooks = {}) {
   const parisGates = [];
   const moscowGates = [];
   let gates = londonGates; // active map's gate list (set per-build & on deploy)
-  const londonSegments = [], parisSegments = [], moscowSegments = [];
   const GATE_Z = [64, 12, -40, -84]; // London gates (one per non-boss stage)
   const GATE_H = 5.2;
   function makeGate(cx, cz, axis = "z") {
@@ -1249,12 +1249,13 @@ export function createWorld(scene, hooks = {}) {
     areaGroup.add(exLabel2);
     interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, -RL + 10), radius: 2.6 });
 
-    // Setup Moscow gates (4 gates, like London)
+    // Setup Moscow gates (4 gates, like London's straight corridor). makeGate()
+    // already pushes into the active `gates` array (moscowGates during this
+    // build); do NOT assign its return value — it returns undefined, which would
+    // leave undefined holes that crash resetGates(). Axis "z" so each gate wall
+    // spans X across the N/S street (matches London).
     const GATE_Z_MOSCOW = [64, 12, -40, -84];
-    for (let i = 0; i < GATE_Z_MOSCOW.length; i++) {
-      const gz = GATE_Z_MOSCOW[i];
-      moscowGates[i] = makeGate(AX, gz, "x");
-    }
+    for (const gz of GATE_Z_MOSCOW) makeGate(AX, gz, "z");
 
     // Setup Moscow segments (simple: just the main corridor)
     moscowSegments.length = 0;
@@ -1695,6 +1696,7 @@ export function createWorld(scene, hooks = {}) {
     for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
     londonGroup.visible = mapId === "london";
     parisGroup.visible = mapId === "paris";
+    moscowGroup.visible = mapId === "moscow";
     setSky(mapId);
     clearBossExtract();
     state.inArea = true; state.wave = 0; state.stage = 0; state.boss = null; state.activeGate = -1;
@@ -1714,7 +1716,7 @@ export function createWorld(scene, hooks = {}) {
     sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.far = 70;
     sc.updateProjectionMatrix();
     hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
-    londonGroup.visible = false; parisGroup.visible = false; skyGroup.visible = false;
+    londonGroup.visible = false; parisGroup.visible = false; moscowGroup.visible = false; skyGroup.visible = false;
     clearBossExtract();
     state.inArea = false;
     state.wave = 0;

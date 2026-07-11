@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711010";
-import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711010";
+import { rollLoot, LONDON_LOOT, PARIS_LOOT, MOSCOW_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711010";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { audio } from "./audio.js?v=260711010";
 import { loadCharacter, loadRobot, makeCharacter, characterReady } from "./character.js?v=260711010";
@@ -424,6 +424,7 @@ export function createWorld(scene, hooks = {}) {
   // `AX` is the ACTIVE map's offset — set per-build and again on deploy.
   const AXL = 260;  // London offset
   const AXP = 3000; // Paris offset (far away)
+  const AXM = 6000; // Moscow offset (hardest campaign)
   let AX = AXL;     // active map offset (mutable)
   const SHW = 12; // street half-width (walkable X)
   const RL = 128; // route half-length (Z)
@@ -449,9 +450,12 @@ export function createWorld(scene, hooks = {}) {
   const londonBg = skyTex("#868e9b", "#a6adb6", "#c6c9cb"); // overcast grey
   const parisFog = new THREE.Fog(0xd8c9a8, 34, 200);
   const parisBg = skyTex("#e6b96a", "#e9cf9a", "#cfe0e6"); // warm golden-hour sky
+  const moscowFog = new THREE.Fog(0x7a8aaa, 22, 160); // cold greyish-blue
+  const moscowBg = skyTex("#5a6a7a", "#6a7a8a", "#7a8a9a"); // cold overcast
   // each map's geometry lives in its own group (only the active one is shown)
   const londonGroup = new THREE.Group(); londonGroup.visible = false; scene.add(londonGroup);
   const parisGroup = new THREE.Group(); parisGroup.visible = false; scene.add(parisGroup);
+  const moscowGroup = new THREE.Group(); moscowGroup.visible = false; scene.add(moscowGroup);
   let areaGroup = londonGroup; // current build target / active group
 
   // --- animated sky FX: a sun disc + slowly drifting cloud billboards ------
@@ -630,6 +634,7 @@ export function createWorld(scene, hooks = {}) {
   // winding map (Paris) is a chain of segments so the route can bend. --------
   const londonSegments = [{ minX: AXL - SHW, maxX: AXL + SHW, minZ: -RL, maxZ: RL }];
   const parisSegments = []; // filled by buildParis
+  const moscowSegments = []; // filled by buildMoscow
   let activeSegments = londonSegments;
   const clampMargin = 0.9; // keep the player off the exact wall (radius)
   function clampToArea(pos) {
@@ -651,6 +656,7 @@ export function createWorld(scene, hooks = {}) {
   // E/W street (wall spans Z). ----------------------------------------------
   const londonGates = [];
   const parisGates = [];
+  const moscowGates = [];
   let gates = londonGates; // active map's gate list (set per-build & on deploy)
   const GATE_Z = [64, 12, -40, -84]; // London gates (one per non-boss stage)
   const GATE_H = 5.2;
@@ -1118,9 +1124,151 @@ export function createWorld(scene, hooks = {}) {
     interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, 116), radius: 2.6 });
   }
 
-  // Build both maps at their own offsets/groups (only one is shown at a time).
+  function buildMoscow() {
+    // Soviet / fortress aesthetic: grey concrete, brick, armor plating, missiles
+    const concreteMat = new THREE.MeshStandardMaterial({ color: 0x6b7a8f, roughness: 0.92, metalness: 0.1 });
+    const brickMat = new THREE.MeshStandardMaterial({ map: loadTex("brick_red", 3, 3), color: 0x8a4a3a, roughness: 0.9 });
+    const armorMat = new THREE.MeshStandardMaterial({ color: 0x3a3f48, roughness: 0.4, metalness: 0.7 });
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x5a6b7c, roughness: 0.3, metalness: 0.8 });
+    const darkConcrete = new THREE.MeshStandardMaterial({ color: 0x4a5566, roughness: 0.85, metalness: 0.05 });
+
+    // Road (concrete, utilitarian)
+    const roadLength = RL * 2 + 32, roadWidth = SHW * 2 + 12;
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(roadWidth, roadLength), concreteMat);
+    road.rotation.x = -Math.PI / 2;
+    road.position.set(AX, 0, 0);
+    road.receiveShadow = true;
+    areaGroup.add(road);
+    solids.push(road);
+
+    // Bunker / fortress structures along the route
+    const bunkers = [
+      { z: 76, name: "装甲门前 I" },
+      { z: 40, name: "装甲门前 II" },
+      { z: -20, name: "指挥堡垒" },
+      { z: -64, name: "导弹阵地" },
+    ];
+
+    for (const bunk of bunkers) {
+      // Main bunker body (tall, fortress-like)
+      const body = new THREE.Mesh(new THREE.BoxGeometry(16, 8, 12), armorMat);
+      body.position.set(AX, 4, bunk.z);
+      body.castShadow = true;
+      areaGroup.add(body);
+      solids.push(body);
+
+      // Roof plating (angled)
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(16.8, 2, 13), steelMat);
+      roof.position.set(AX, 9, bunk.z);
+      roof.castShadow = true;
+      areaGroup.add(roof);
+
+      // Gun emplacements / slit windows (small rectangles)
+      for (let i = 0; i < 3; i++) {
+        const slits = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.2, 0.4), darkConcrete);
+        slits.position.set(AX - 6 + i * 6, 5.5, bunk.z + 6.2);
+        areaGroup.add(slits);
+      }
+
+      // Label
+      const lbl = makeLabel(bunk.name, "#6b9eff");
+      lbl.position.set(AX, 10.5, bunk.z);
+      areaGroup.add(lbl);
+    }
+
+    // Missile / antenna towers (Soviet style)
+    for (let i = 0; i < 3; i++) {
+      const z = 60 - i * 50, x = AX + (i % 2 ? 20 : -20);
+      // Tower pole
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.4, 28, 8), steelMat);
+      pole.position.set(x, 14, z);
+      pole.castShadow = true;
+      areaGroup.add(pole);
+      solids.push(pole);
+      // Antenna dish
+      const dish = new THREE.Mesh(new THREE.ConeGeometry(2.8, 1.2, 12), armorMat);
+      dish.position.set(x, 30, z);
+      dish.castShadow = true;
+      areaGroup.add(dish);
+      // Support struts
+      for (let j = 0; j < 3; j++) {
+        const angle = (j / 3) * Math.PI * 2;
+        const sx = x + Math.cos(angle) * 4, sz = z + Math.sin(angle) * 4;
+        const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 18, 6), steelMat);
+        strut.position.set(sx, 11, sz);
+        const dir = new THREE.Vector3(x - sx, 18, z - sz);
+        strut.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+        areaGroup.add(strut);
+      }
+    }
+
+    // Industrial buildings (concrete blocks)
+    const buildingPositions = [
+      { x: -18, z: 50 }, { x: 18, z: 50 },
+      { x: -20, z: 0 }, { x: 20, z: 0 },
+      { x: -22, z: -50 }, { x: 22, z: -50 },
+    ];
+
+    for (const pos of buildingPositions) {
+      const building = new THREE.Mesh(new THREE.BoxGeometry(10, 7, 9), brickMat);
+      building.position.set(AX + pos.x, 3.5, pos.z);
+      building.castShadow = true;
+      areaGroup.add(building);
+      solids.push(building);
+
+      // Small windows (industrial style)
+      for (let row = 0; row < 2; row++) {
+        for (let col = 0; col < 2; col++) {
+          const win = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.2, 0.2), darkConcrete);
+          win.position.set(AX + pos.x - 3 + col * 3, 4 + row * 2, pos.z + 4.6);
+          areaGroup.add(win);
+        }
+      }
+    }
+
+    // Fence / barrier system (chainlink style)
+    for (let i = 0; i < 5; i++) {
+      const fencePost = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 4, 6), steelMat);
+      fencePost.position.set(AX - 30, 2, -90 + i * 30);
+      fencePost.castShadow = true;
+      areaGroup.add(fencePost);
+      solids.push(fencePost);
+    }
+
+    // Deploy and extract points
+    areaSpawn.set(AX, 0, RL - 12);
+    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 10).rotateX(-Math.PI / 2));
+    const dpLabel = makeLabel("部署点 [D]", "#8effb0");
+    dpLabel.position.set(AX, 2.4, RL - 12);
+    areaGroup.add(dpLabel);
+
+    // Extract
+    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, -RL + 10).rotateX(-Math.PI / 2));
+    const exLabel2 = makeLabel("撤离点 [E]", "#8effb0");
+    exLabel2.position.set(AX, 2.4, -RL + 12);
+    areaGroup.add(exLabel2);
+    interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, -RL + 10), radius: 2.6 });
+
+    // Setup Moscow gates (4 gates, like London's straight corridor). makeGate()
+    // already pushes into the active `gates` array (moscowGates during this
+    // build); do NOT assign its return value — it returns undefined, which would
+    // leave undefined holes that crash resetGates(). Axis "z" so each gate wall
+    // spans X across the N/S street (matches London).
+    const GATE_Z_MOSCOW = [64, 12, -40, -84];
+    for (const gz of GATE_Z_MOSCOW) makeGate(AX, gz, "z");
+
+    // Setup Moscow segments (simple: just the main corridor)
+    moscowSegments.length = 0;
+    moscowSegments.push({
+      minX: AX - SHW, maxX: AX + SHW,
+      minZ: -RL, maxZ: RL,
+    });
+  }
+
+  // Build all three maps at their own offsets/groups (only one is shown at a time).
   AX = AXL; areaGroup = londonGroup; gates = londonGates; buildLondon();
   AX = AXP; areaGroup = parisGroup; gates = parisGates; buildParis();
+  AX = AXM; areaGroup = moscowGroup; gates = moscowGates; buildMoscow();
   AX = AXL; areaGroup = londonGroup; gates = londonGates; // default active = London
 
   // Articulated soldier: limbs hang from hip/shoulder pivots so they can be
@@ -1302,6 +1450,19 @@ export function createWorld(scene, hooks = {}) {
     { triggerPt: { x: -44, z: -58 }, spawnPt: { x: -44, z: -100 }, bossPt: { x: -44, z: -140 }, gate: -1,
       name: "最终 · 埃菲尔铁塔", sub: "⚠ 铁塔首领现身", boss: true,
       bossName: "铁塔守卫者", bossHp: 6000, squad: [{ tier: "grunt", hp: 150, n: 10 }, { tier: "elite2", hp: 320, n: 4 }] },
+  ];
+  // Moscow is the ultimate challenge — hardest enemies, toughest boss
+  const MOSCOW_STAGES = [
+    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 装甲门前", sub: "苏联防线，清空敌人后闸门开启", zone: [66, 92],
+      squad: [{ tier: "grunt", hp: 100, n: 18 }, { tier: "elite1", hp: 220, n: 2 }] },
+    { triggerZ: 62, gate: 1, name: "第 2 区 · 装备库", sub: "敌人增援，精英把守", zone: [12, 58],
+      squad: [{ tier: "grunt", hp: 140, n: 22 }, { tier: "elite1", hp: 280, n: 5 }] },
+    { triggerZ: 10, gate: 2, name: "第 3 区 · 指挥中心", sub: "潮水般的敌人，重装精英", zone: [-38, 6],
+      squad: [{ tier: "grunt", hp: 180, n: 26 }, { tier: "elite2", hp: 400, n: 6 }] },
+    { triggerZ: -42, gate: 3, name: "第 4 区 · 导弹阵地", sub: "终极防线，重型单位群", zone: [-82, -46],
+      squad: [{ tier: "grunt", hp: 200, n: 20 }, { tier: "elite2", hp: 480, n: 7 }, { tier: "heavy", hp: 800, n: 3 }] },
+    { triggerZ: -86, gate: -1, name: "最终 · 克里姆林宫", sub: "⚠ 红堡首领现身", zone: [-100, -92], boss: true,
+      bossName: "红堡首领", bossHp: 7500, squad: [{ tier: "grunt", hp: 180, n: 12 }, { tier: "elite2", hp: 420, n: 5 }] },
   ];
   let STAGES = LONDON_STAGES; // active map's stages (set on deploy)
   const _tmpV = new THREE.Vector3();
@@ -1517,6 +1678,8 @@ export function createWorld(scene, hooks = {}) {
       spawnZ: RL - 12, fog: londonFog, bg: londonBg, key: 0xdfe4ea, keyI: 2.1, hemiSky: 0xc4ccd6, hemiGround: 0x555a60, hemiI: 1.15 },
     paris: { group: parisGroup, ax: AXP, stages: PARIS_STAGES, gates: parisGates, loot: PARIS_LOOT, segments: parisSegments,
       spawnZ: 116, fog: parisFog, bg: parisBg, key: 0xffe7c0, keyI: 2.5, hemiSky: 0xe6d3b0, hemiGround: 0x6a5a44, hemiI: 1.2 },
+    moscow: { group: moscowGroup, ax: AXM, stages: MOSCOW_STAGES, gates: moscowGates, loot: MOSCOW_LOOT, segments: moscowSegments,
+      spawnZ: RL - 12, fog: moscowFog, bg: moscowBg, key: 0xa8c4e0, keyI: 2.0, hemiSky: 0x7a8aaa, hemiGround: 0x4a5566, hemiI: 1.1 },
   };
   function enterArea(mapId = "london") {
     const m = MAPS[mapId] || MAPS.london;
@@ -1533,6 +1696,7 @@ export function createWorld(scene, hooks = {}) {
     for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
     londonGroup.visible = mapId === "london";
     parisGroup.visible = mapId === "paris";
+    moscowGroup.visible = mapId === "moscow";
     setSky(mapId);
     clearBossExtract();
     state.inArea = true; state.wave = 0; state.stage = 0; state.boss = null; state.activeGate = -1;
@@ -1552,7 +1716,7 @@ export function createWorld(scene, hooks = {}) {
     sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.far = 70;
     sc.updateProjectionMatrix();
     hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
-    londonGroup.visible = false; parisGroup.visible = false; skyGroup.visible = false;
+    londonGroup.visible = false; parisGroup.visible = false; moscowGroup.visible = false; skyGroup.visible = false;
     clearBossExtract();
     state.inArea = false;
     state.wave = 0;
