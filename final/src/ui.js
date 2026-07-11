@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711008";
-import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711008";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711008";
-import { audio } from "./audio.js?v=260711008";
+import { account } from "./account.js?v=260711009";
+import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711009";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711009";
+import { audio } from "./audio.js?v=260711009";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -104,95 +104,96 @@ export function createUI(hooks = {}) {
   }
   function canAfford(cost) { return cost.every((c) => account.count(c.id) >= c.qty); }
 
+  // cost as a row of item-icon chips, dimming ones you can't afford.
+  function costChips(cost) {
+    return `<span class="cost-chips">` + cost.map((c) => {
+      const it = ITEM_DB[c.id]; const have = account.count(c.id); const ok = have >= c.qty;
+      return `<span class="cost-chip${ok ? "" : " short"}" title="${it.name} ${have}/${c.qty}"><span class="cc-icon">${it.icon}</span><span class="cc-qty">×${c.qty}</span></span>`;
+    }).join("") + `</span>`;
+  }
+  function sectionHead(body, title) {
+    const h = document.createElement("div"); h.className = "shopSection"; h.textContent = title; body.appendChild(h);
+  }
+  // a crafting card: icon + name + tag + stats + cost chips + button
+  function craftCard(def, tag, tagCls, cost, ownedText, onBuy) {
+    const card = document.createElement("div"); card.className = "craftCard rar-" + def.rarity;
+    const stats = Object.entries(def.stats || {}).slice(0, 3).map(([k, v]) => `<span class="cc-stat">${k} <b>${v}</b></span>`).join("");
+    card.innerHTML =
+      `<div class="cc-icon-lg">${def.icon}</div>` +
+      `<div class="cc-main"><div class="cc-name">${def.name} <em class="diff ${tagCls}">${tag}</em></div>` +
+      `<div class="cc-desc">${def.desc || ""}</div><div class="cc-stats">${stats}</div>` +
+      `<div class="cc-cost">材料 ${costChips(cost)}</div></div>` +
+      `<button class="rowBtn deploy cc-btn"></button>`;
+    const btn = card.querySelector(".cc-btn");
+    const render = () => { btn.textContent = ownedText(); btn.classList.toggle("owned", ownedText() !== "兑换"); };
+    render();
+    btn.addEventListener("click", () => { if (onBuy(render)) refreshCoins(); });
+    return card;
+  }
+
   function openVendor() {
     open = true;
-    const body = shell("装备商人 · 军械", "用材料兑换高级武器，或购买补给");
+    const body = shell("装备商人 · 军械", "用材料制造高级武器 · 购买补给与复活币");
 
-    // --- gold AK exchange ---
-    const data = account.getData();
-    const owned = data && data.skins && data.skins.ak === "gold";
-    const row = document.createElement("div");
-    row.className = "listRow tall";
-    row.innerHTML = `<div class="rowText"><span class="rowName">黄金 AK-47 <em class="diff diff-高危">传说</em></span>
-      <span class="rowDesc">把手中的 AK 升级为金色涂装。材料：${costText(GOLD_AK_COST)}</span></div>
-      <button class="rowBtn deploy">${owned ? "已拥有" : "兑换"}</button>`;
-    const btn = row.querySelector(".rowBtn");
-    if (owned) btn.disabled = true;
-    btn.addEventListener("click", () => {
-      if (account.getData().skins.ak === "gold") return;
-      if (!canAfford(GOLD_AK_COST)) { toast("材料不足"); return; }
-      for (const c of GOLD_AK_COST) account.take(c.id, c.qty);
-      const d2 = account.getData();
-      d2.skins.ak = "gold";
-      if (!d2.inventory.find((x) => x.id === "ak47_gold")) d2.inventory.push({ id: "ak47_gold", qty: 1 });
-      d2.equipment.primary = "ak47_gold";
-      account.save(d2);
-      if (window.__PN_SET_AK_SKIN__) window.__PN_SET_AK_SKIN__("gold"); // recolour the in-hand AK live
-      btn.textContent = "已拥有"; btn.disabled = true;
-      toast("已兑换：黄金 AK-47 ✦");
-    });
-    body.appendChild(row);
-
-    // --- craftable weapons (materials) ---
+    // ===== 武器制造 =====
+    sectionHead(body, "🔧 武器制造");
+    const grid = document.createElement("div"); grid.className = "craftGrid"; body.appendChild(grid);
+    // gold AK (skin upgrade, treated as a craft)
+    const gd = ITEM_DB.ak47_gold;
+    grid.appendChild(craftCard(gd, "传说", "diff-高危", GOLD_AK_COST,
+      () => (account.getData().skins && account.getData().skins.ak === "gold") ? "已拥有" : "兑换",
+      (render) => {
+        if (account.getData().skins.ak === "gold") return false;
+        if (!canAfford(GOLD_AK_COST)) { toast("材料不足"); return false; }
+        for (const c of GOLD_AK_COST) account.take(c.id, c.qty);
+        const d2 = account.getData(); d2.skins.ak = "gold";
+        if (!d2.inventory.find((x) => x.id === "ak47_gold")) d2.inventory.push({ id: "ak47_gold", qty: 1 });
+        d2.equipment.primary = "ak47_gold"; account.save(d2);
+        if (window.__PN_SET_AK_SKIN__) window.__PN_SET_AK_SKIN__("gold");
+        toast("已兑换：黄金 AK-47 ✦"); render(); return true;
+      }));
     for (const wx of WEAPON_EXCHANGES) {
       const def = ITEM_DB[wx.id];
-      const has = data && data.inventory.find((x) => x.id === wx.id);
-      const wr = document.createElement("div");
-      wr.className = "listRow tall";
-      wr.innerHTML = `<div class="rowText"><span class="rowName">${def.name} <em class="diff ${wx.tagCls}">${wx.tag}</em></span>
-        <span class="rowDesc">${wx.desc} 材料：${costText(wx.cost)}</span></div>
-        <button class="rowBtn deploy">${has ? "已拥有 · 装备" : "兑换"}</button>`;
-      const wbtn = wr.querySelector(".rowBtn");
-      wbtn.addEventListener("click", () => {
-        const d = account.getData();
-        const owned = d.inventory.find((x) => x.id === wx.id);
-        if (!owned) {
-          if (!canAfford(wx.cost)) { toast("材料不足"); return; }
-          for (const c of wx.cost) account.take(c.id, c.qty);
-        }
-        const d2 = account.getData();
-        if (!d2.inventory.find((x) => x.id === wx.id)) d2.inventory.push({ id: wx.id, qty: 1 });
-        d2.equipment.primary = wx.id; // equip as the primary
-        account.save(d2);
-        if (hooks.onLoadoutChanged) hooks.onLoadoutChanged(); // swap the live weapon
-        wbtn.textContent = "已拥有 · 装备";
-        toast(`已装备：${def.name}`);
-      });
-      body.appendChild(wr);
+      grid.appendChild(craftCard(def, wx.tag, wx.tagCls, wx.cost,
+        () => account.count(wx.id) > 0 ? "已拥有 · 装备" : "兑换",
+        (render) => {
+          const has = account.count(wx.id) > 0;
+          if (!has) { if (!canAfford(wx.cost)) { toast("材料不足"); return false; } for (const c of wx.cost) account.take(c.id, c.qty); }
+          const d2 = account.getData();
+          if (!d2.inventory.find((x) => x.id === wx.id)) d2.inventory.push({ id: wx.id, qty: 1 });
+          d2.equipment.primary = wx.id; account.save(d2);
+          if (hooks.onLoadoutChanged) hooks.onLoadoutChanged();
+          toast(`已装备：${def.name}`); render(); return true;
+        }));
     }
 
-    // --- revive tokens (materials): auto-consumed on death to respawn in place ---
-    const rc = document.createElement("div");
-    rc.className = "listRow tall";
-    const heldRevive = account.count("revive_coin");
-    rc.innerHTML = `<div class="rowText"><span class="rowName">复活币 <em class="diff diff-高危">传说</em> <span class="rowMeta">持有 ${heldRevive}</span></span>
-      <span class="rowDesc">阵亡时自动消耗一枚，在原地满血复活（不返回基地）。材料：${costText(REVIVE_COST)}</span></div>
-      <button class="rowBtn deploy">兑换</button>`;
-    rc.querySelector(".rowBtn").addEventListener("click", () => {
-      if (!canAfford(REVIVE_COST)) { toast("材料不足"); return; }
-      for (const c of REVIVE_COST) account.take(c.id, c.qty);
-      account.addItem("revive_coin", 1);
-      rc.querySelector(".rowMeta").textContent = `持有 ${account.count("revive_coin")}`;
-      toast("已兑换：复活币 ×1");
-    });
-    body.appendChild(rc);
+    // ===== 特殊 =====
+    sectionHead(body, "✦ 特殊物资");
+    const rdef = ITEM_DB.revive_coin;
+    const rgrid = document.createElement("div"); rgrid.className = "craftGrid"; body.appendChild(rgrid);
+    rgrid.appendChild(craftCard(rdef, "传说", "diff-高危", REVIVE_COST,
+      () => `兑换 · 持有 ${account.count("revive_coin")}`,
+      (render) => {
+        if (!canAfford(REVIVE_COST)) { toast("材料不足"); return false; }
+        for (const c of REVIVE_COST) account.take(c.id, c.qty);
+        account.addItem("revive_coin", 1); toast("已兑换：复活币 ×1"); render(); return true;
+      }));
 
-    // --- consumables (coins) ---
+    // ===== 补给（金币） =====
+    sectionHead(body, "◈ 补给（金币购买）");
     for (const item of VENDOR_ITEMS) {
-      const r = document.createElement("div");
-      r.className = "listRow";
-      r.innerHTML = `<span class="rowName">${item.name}</span>
-        <span class="rowMeta">◈ ${item.price}</span>
-        <button class="rowBtn">购买</button>`;
+      const def = ITEM_DB[item.give] || { icon: "📦", name: item.name };
+      const r = document.createElement("div"); r.className = "shopRow";
+      r.innerHTML = `<span class="sr-icon">${def.icon}</span><span class="sr-name">${item.name}</span>
+        <span class="sr-price">◈ ${item.price}</span><button class="rowBtn">购买</button>`;
       r.querySelector(".rowBtn").addEventListener("click", () => {
         const d = account.getData();
         if (d.coins >= item.price) {
           d.coins -= item.price;
           if (item.give) { const e = d.inventory.find((x) => x.id === item.give); if (e) e.qty += 1; else d.inventory.push({ id: item.give, qty: 1 }); }
           account.save(d);
-          if (item.ammo && hooks.onBuyAmmo) hooks.onBuyAmmo(item.ammo); // load it straight into the weapon
-          refreshCoins();
-          toast(`已购买：${item.name}`);
+          if (item.ammo && hooks.onBuyAmmo) hooks.onBuyAmmo(item.ammo);
+          refreshCoins(); toast(`已购买：${item.name}`);
         } else { toast("余额不足"); }
       });
       body.appendChild(r);

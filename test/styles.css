@@ -1149,3 +1149,50 @@ body.playing #minimap { display: inline-block; }
 .drop-cell.rar-rare   { --rar: #4aa3ff; }
 .drop-cell.rar-epic   { --rar: #b06bff; }
 .drop-cell.rar-legend { --rar: #ffce3a; box-shadow: 0 0 8px rgba(255,206,58,0.35); }
+
+/* ===== Vendor shop: sections + crafting cards ===== */
+.shopSection {
+  margin: 16px 0 8px; font-size: 13px; letter-spacing: 2px; font-weight: 700;
+  color: #8fd1ff; border-bottom: 1px solid rgba(127,209,255,0.2); padding-bottom: 6px;
+}
+.shopSection:first-child { margin-top: 4px; }
+.craftGrid { display: grid; grid-template-columns: 1fr; gap: 10px; }
+.craftCard {
+  display: grid; grid-template-columns: 56px 1fr auto; align-items: center; gap: 12px;
+  padding: 12px; border-radius: 12px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+  border: 1px solid var(--rar, #9fb3c8); border-left: 4px solid var(--rar, #9fb3c8);
+  box-shadow: 0 4px 14px rgba(0,0,0,0.3);
+}
+.craftCard.rar-common { --rar: #9fb3c8; }
+.craftCard.rar-rare   { --rar: #4aa3ff; }
+.craftCard.rar-epic   { --rar: #b06bff; }
+.craftCard.rar-legend { --rar: #ffce3a; box-shadow: 0 0 14px rgba(255,206,58,0.2), 0 4px 14px rgba(0,0,0,0.35); }
+.cc-icon-lg {
+  width: 56px; height: 56px; display: grid; place-items: center; font-size: 30px;
+  background: rgba(0,0,0,0.28); border-radius: 10px; border: 1px solid var(--rar, #9fb3c8);
+}
+.cc-main { min-width: 0; }
+.cc-name { font-size: 16px; font-weight: 600; color: #eef4fb; }
+.cc-desc { font-size: 12px; opacity: 0.62; margin-top: 3px; line-height: 1.35; }
+.cc-stats { display: flex; flex-wrap: wrap; gap: 5px 12px; margin-top: 6px; }
+.cc-stat { font-size: 11px; color: #9fb3c8; }
+.cc-stat b { color: #cfe6ff; font-weight: 700; }
+.cc-cost { margin-top: 8px; font-size: 12px; opacity: 0.8; }
+.cost-chips { display: inline-flex; gap: 6px; margin-left: 4px; vertical-align: middle; }
+.cost-chip {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 7px; border-radius: 7px;
+  background: rgba(120,220,140,0.14); border: 1px solid rgba(120,220,140,0.4); font-size: 12px;
+}
+.cost-chip.short { background: rgba(255,90,90,0.14); border-color: rgba(255,90,90,0.5); color: #ff9a9a; }
+.cost-chip .cc-icon { font-size: 13px; }
+.cost-chip .cc-qty { font-variant-numeric: tabular-nums; }
+.cc-btn { align-self: center; }
+.cc-btn.owned { background: linear-gradient(180deg, #7fe0a8, #3fb87a); }
+.shopRow {
+  display: grid; grid-template-columns: 34px 1fr auto auto; align-items: center; gap: 12px;
+  padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.shopRow .sr-icon { font-size: 20px; text-align: center; }
+.shopRow .sr-name { font-size: 15px; }
+.shopRow .sr-price { color: #ffd23f; font-size: 14px; min-width: 64px; text-align: right; }

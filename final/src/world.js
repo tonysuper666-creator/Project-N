@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711008";
-import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711008";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711009";
+import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711009";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711008";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711008";
+import { audio } from "./audio.js?v=260711009";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711009";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -453,6 +453,41 @@ export function createWorld(scene, hooks = {}) {
   const parisGroup = new THREE.Group(); parisGroup.visible = false; scene.add(parisGroup);
   let areaGroup = londonGroup; // current build target / active group
 
+  // --- animated sky FX: a sun disc + slowly drifting cloud billboards ------
+  const skyGroup = new THREE.Group(); skyGroup.visible = false; scene.add(skyGroup);
+  const cloudTex = (() => {
+    const c = document.createElement("canvas"); c.width = c.height = 128; const x = c.getContext("2d");
+    const g = x.createRadialGradient(64, 64, 6, 64, 64, 62);
+    g.addColorStop(0, "rgba(255,255,255,0.95)"); g.addColorStop(0.5, "rgba(255,255,255,0.5)"); g.addColorStop(1, "rgba(255,255,255,0)");
+    x.fillStyle = g; x.fillRect(0, 0, 128, 128);
+    return new THREE.CanvasTexture(c);
+  })();
+  const clouds = [];
+  for (let i = 0; i < 16; i += 1) {
+    const spr = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, transparent: true, opacity: 0.7, depthWrite: false }));
+    const sc = 26 + Math.random() * 40;
+    spr.scale.set(sc, sc * 0.55, 1);
+    spr.position.set((Math.random() - 0.5) * 300, 55 + Math.random() * 45, -60 - Math.random() * 260);
+    skyGroup.add(spr); clouds.push({ spr, speed: 1.2 + Math.random() * 2.2 });
+  }
+  const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: cloudTex, color: 0xfff2c0, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }));
+  sunSprite.scale.set(34, 34, 1); sunSprite.position.set(70, 90, -230); skyGroup.add(sunSprite);
+  const sunCore = new THREE.Mesh(new THREE.SphereGeometry(6, 20, 16), new THREE.MeshBasicMaterial({ color: 0xfff6d8 }));
+  sunCore.position.copy(sunSprite.position); skyGroup.add(sunCore);
+  function setSky(mapId) {
+    skyGroup.visible = true;
+    skyGroup.position.x = AX; // clouds drift over the active map
+    if (mapId === "paris") { // warm low sun
+      sunSprite.material.color.setHex(0xffcf7a); sunCore.material.color.setHex(0xffd98a);
+      sunSprite.position.set(40, 55, -240); sunCore.position.copy(sunSprite.position); sunCore.scale.setScalar(1.4);
+      for (const c of clouds) c.spr.material.color.setHex(0xffe6c0);
+    } else { // pale overcast sun
+      sunSprite.material.color.setHex(0xdfe4ea); sunCore.material.color.setHex(0xeef2f6);
+      sunSprite.position.set(70, 95, -230); sunCore.position.copy(sunSprite.position); sunCore.scale.setScalar(0.9);
+      for (const c of clouds) c.spr.material.color.setHex(0xd8dce2);
+    }
+  }
+
   // --- supply crates: openable once per run, burst into loot --------------
   const supplyCrates = [];
   function makeSupplyCrate(ex, ez, id) {
@@ -589,14 +624,36 @@ export function createWorld(scene, hooks = {}) {
   let waterMat = null;
   let sporesRef = null;
 
-  // --- stage gates: iron portcullises that seal the street until a stage's
-  // enemies are cleared, forcing a fight-your-way-forward flow ---------------
+  // --- walkable area shape: the player + enemies are clamped to the union of
+  // the active map's rectangular segments. A straight map is one segment; a
+  // winding map (Paris) is a chain of segments so the route can bend. --------
+  const londonSegments = [{ minX: AXL - SHW, maxX: AXL + SHW, minZ: -RL, maxZ: RL }];
+  const parisSegments = []; // filled by buildParis
+  let activeSegments = londonSegments;
+  const clampMargin = 0.9; // keep the player off the exact wall (radius)
+  function clampToArea(pos) {
+    const segs = activeSegments; if (!segs || !segs.length) return;
+    let bx = pos.x, bz = pos.z, bd = Infinity, inside = false;
+    for (const s of segs) {
+      const cx = Math.max(s.minX + clampMargin, Math.min(s.maxX - clampMargin, pos.x));
+      const cz = Math.max(s.minZ + clampMargin, Math.min(s.maxZ - clampMargin, pos.z));
+      const d = (pos.x - cx) * (pos.x - cx) + (pos.z - cz) * (pos.z - cz);
+      if (d < 1e-6) { inside = true; break; }
+      if (d < bd) { bd = d; bx = cx; bz = cz; }
+    }
+    if (!inside) { pos.x = bx; pos.z = bz; }
+  }
+
+  // --- stage gates: iron portcullises that seal the route until a stage's
+  // enemies are cleared. A gate spans the corridor at (cx,cz); `axis` is the
+  // corridor direction there — "z" for a N/S street (wall spans X), "x" for an
+  // E/W street (wall spans Z). ----------------------------------------------
   const londonGates = [];
   const parisGates = [];
   let gates = londonGates; // active map's gate list (set per-build & on deploy)
-  const GATE_Z = [64, 12, -40, -84]; // one per non-boss stage
+  const GATE_Z = [64, 12, -40, -84]; // London gates (one per non-boss stage)
   const GATE_H = 5.2;
-  function makeGate(z) {
+  function makeGate(cx, cz, axis = "z") {
     const grp = new THREE.Group();
     const barMat = new THREE.MeshStandardMaterial({ color: 0x2b3038, roughness: 0.45, metalness: 0.85 });
     const frameMat = new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.6, metalness: 0.7 });
@@ -604,14 +661,17 @@ export function createWorld(scene, hooks = {}) {
     for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, GATE_H + 1, 0.6), frameMat); post.position.set(sx * (SHW + 0.2), GATE_H / 2, 0); grp.add(post); }
     for (let bx = -SHW + 0.7; bx <= SHW - 0.7; bx += 1.05) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, GATE_H, 8), barMat); bar.position.set(bx, GATE_H / 2, 0); bar.castShadow = true; grp.add(bar); }
     for (const by of [1.3, 3.0, 4.4]) { const cb = new THREE.Mesh(new THREE.BoxGeometry(SHW * 2, 0.14, 0.16), barMat); cb.position.set(0, by, 0); grp.add(cb); }
-    grp.position.set(AX, 7, z); // start raised (open)
+    if (axis === "x") grp.rotation.y = Math.PI / 2; // wall spans Z instead of X
+    grp.position.set(cx, 7, cz); // start raised (open)
     areaGroup.add(grp);
-    gates.push({ z, group: grp, box: null, closed: false });
+    gates.push({ cx, cz, axis, group: grp, box: null, closed: false });
   }
   function closeGate(i) {
     const gt = gates[i]; if (!gt || gt.closed) return;
     gt.closed = true;
-    gt.box = new THREE.Box3(new THREE.Vector3(AX - SHW, 0, gt.z - 0.4), new THREE.Vector3(AX + SHW, GATE_H + 1, gt.z + 0.4));
+    gt.box = gt.axis === "x"
+      ? new THREE.Box3(new THREE.Vector3(gt.cx - 0.5, 0, gt.cz - SHW), new THREE.Vector3(gt.cx + 0.5, GATE_H + 1, gt.cz + SHW))
+      : new THREE.Box3(new THREE.Vector3(gt.cx - SHW, 0, gt.cz - 0.5), new THREE.Vector3(gt.cx + SHW, GATE_H + 1, gt.cz + 0.5));
     colliders.push(gt.box);
   }
   function openGate(i) {
@@ -876,7 +936,7 @@ export function createWorld(scene, hooks = {}) {
     makeSupplyCrate(SHW - 1.6, -40, "lc2");
 
     // stage gates spanning the street (open until each stage seals them)
-    for (const z of GATE_Z) makeGate(z);
+    for (const z of GATE_Z) makeGate(AX, z, "z");
 
     // extract pad at the near (spawn) end (per-map interactable at this AX)
     areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
@@ -913,178 +973,148 @@ export function createWorld(scene, hooks = {}) {
     beacon.position.set(bx, H + 10.5, bz); areaGroup.add(beacon);
   }
 
-  // ===== PARIS map: a Haussmann boulevard with layered landmarks (Arc de
-  // Triomphe you pass under, a roundabout island you round, the Eiffel Tower
-  // at the finale) so it never reads as a bare straight line ================
+  // ===== PARIS map: a WINDING Haussmann boulevard (~5× the London footprint).
+  // The route zig-zags through 5 legs with 90° turns at landmark junctions.
+  // Player + enemies are confined to the union of the leg segments. =========
+  // Path points: x is LOCAL (relative to AX); z is absolute.
+  const PARIS_PATH = [
+    { x: 0, z: 120 }, { x: 0, z: 48 }, { x: 88, z: 48 },
+    { x: 88, z: -44 }, { x: -44, z: -44 }, { x: -44, z: -150 },
+  ];
   function buildParis() {
-    const L = RL;
-    const cobbleMat = new THREE.MeshStandardMaterial({ map: loadTex("cobble", 5, 48), roughness: 0.95 });
-    const paveMat = new THREE.MeshStandardMaterial({ map: loadTex("pavement", 3, 46), roughness: 1 });
-    const limeMat = new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xe8dcc0, roughness: 0.85 });
-    const limeMat2 = new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xd8ccae, roughness: 0.85 });
+    const PHW = SHW; // corridor half-width
+    const cobbleMat = new THREE.MeshStandardMaterial({ map: loadTex("cobble", 6, 6), roughness: 0.95 });
+    const paveMat = new THREE.MeshStandardMaterial({ map: loadTex("pavement", 3, 3), roughness: 1 });
+    const limeMats = [
+      new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xe8dcc0, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xd8ccae, roughness: 0.85 }),
+      new THREE.MeshStandardMaterial({ map: loadTex("paris_wall", 2, 3), color: 0xe4dcc6, roughness: 0.85 }),
+    ];
     const roofMat = new THREE.MeshStandardMaterial({ map: loadTex("roof", 3, 2), color: 0x5a6470, roughness: 0.8 });
-    const ironMat = new THREE.MeshStandardMaterial({ color: 0x20242c, roughness: 0.5, metalness: 0.7 });
     const stoneMat = new THREE.MeshStandardMaterial({ map: loadTex("stone", 2, 3), roughness: 0.9 });
     const winMat = new THREE.MeshStandardMaterial({ color: 0x2a3542, emissive: 0x0a1420, roughness: 0.3, metalness: 0.4 });
-
-    // cobblestone boulevard + limestone pavements
-    const road = new THREE.Mesh(new THREE.PlaneGeometry(SHW * 2, L * 2 + 30), cobbleMat);
-    road.rotation.x = -Math.PI / 2; road.position.set(AX, 0, 0); road.receiveShadow = true;
-    areaGroup.add(road); solids.push(road);
-    for (const s of [-1, 1]) {
-      const sw = new THREE.Mesh(new THREE.BoxGeometry(7, 0.2, L * 2 + 30), paveMat);
-      sw.position.set(AX + s * (SHW + 3.5), 0.1, 0); sw.receiveShadow = true; areaGroup.add(sw); solids.push(sw);
-    }
-
-    // Haussmann building: cream limestone, tall windows + wrought-iron balconies,
-    // mansard roof. Uniform-ish height gives the classic Parisian rhythm.
-    const innerX = SHW + 7, depth = 9;
-    function haussmann(cx, cz, w, faceDir, mat) {
-      const h = 19 + Math.random() * 4;
-      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), mat);
-      b.position.set(cx, h / 2, cz); b.castShadow = true; b.receiveShadow = true; areaGroup.add(b); solids.push(b);
-      // ground-floor shopfront band (darker stone)
-      const shop = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 3, depth + 0.2), stoneMat); shop.position.set(cx, 1.5, cz); areaGroup.add(shop);
-      // mansard roof (angled slab)
-      const roof = new THREE.Mesh(new THREE.BoxGeometry(w, 3.4, depth), roofMat); roof.position.set(cx, h + 1.5, cz); roof.scale.set(0.86, 1, 0.86); roof.castShadow = true; areaGroup.add(roof);
-      // window + balcony rows on the street face
-      const fx = cx + faceDir * (depth / 2 + 0.05);
-      const cols = Math.max(3, Math.floor(w / 2.2));
-      for (let fl = 0; fl < 4; fl += 1) {
-        const wy = 4.5 + fl * 3.6;
-        for (let ccol = 0; ccol < cols; ccol += 1) {
-          const wx = -w / 2 + 1.2 + ccol * (w - 2.4) / Math.max(1, cols - 1);
-          const win = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 0.9), winMat);
-          win.position.set(fx, wy, cz + wx); areaGroup.add(win);
-        }
-        // continuous balcony rail on the 2nd + 4th floors (Haussmann style)
-        if (fl === 1 || fl === 3) {
-          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, w * 0.92), ironMat);
-          rail.position.set(fx + faceDir * 0.35, wy - 1.2, cz); areaGroup.add(rail);
-        }
-      }
-    }
-    const ARCH_Z = 40, ROND_Z = -14; // arch + roundabout positions along the route
-    for (const s of [-1, 1]) {
-      let z = -L + 20;
-      let alt = 0;
-      while (z < L - 8) {
-        const w = 11 + Math.random() * 4;
-        const mid = z + w / 2;
-        // leave frontages open around the arch, roundabout and river bank
-        const nearArch = Math.abs(mid - ARCH_Z) < 8;
-        const nearRond = Math.abs(mid - ROND_Z) < 14;
-        const nearRiver = s === 1 && mid > 78; // river runs along the right, far end
-        if (nearArch || nearRond || nearRiver || Math.random() < 0.08) { z += w + 5; continue; }
-        haussmann(AX + s * (innerX + depth / 2), mid, w, -s, (alt++ % 2) ? limeMat : limeMat2);
-        z += w + 0.8;
-      }
-    }
-
-    // --- Arc de Triomphe: monumental stone arch you pass UNDER ---------------
-    (function arc() {
-      const z = ARCH_Z, aw = 15, ah = 16, at = 7;
-      for (const sx of [-1, 1]) { // two piers (colliders); centre stays open
-        const pier = new THREE.Mesh(new THREE.BoxGeometry(3.4, ah, at), stoneMat);
-        pier.position.set(AX + sx * (aw / 2), ah / 2, z); pier.castShadow = true; areaGroup.add(pier); solids.push(pier);
-        colliders.push(new THREE.Box3().setFromObject(pier));
-      }
-      const top = new THREE.Mesh(new THREE.BoxGeometry(aw + 3.4, 5, at + 1), stoneMat); top.position.set(AX, ah + 2.5, z); top.castShadow = true; areaGroup.add(top); solids.push(top);
-      const vault = new THREE.Mesh(new THREE.TorusGeometry(aw / 2 - 1.7, 1.4, 8, 16, Math.PI), stoneMat); vault.position.set(AX, ah - 2, z); vault.rotation.x = Math.PI; areaGroup.add(vault);
-      const attic = new THREE.Mesh(new THREE.BoxGeometry(aw + 4, 3, at + 1.6), stoneMat); attic.position.set(AX, ah + 6.5, z); areaGroup.add(attic);
-    })();
-
-    // --- roundabout island: fountain + monument you round -------------------
-    (function rond() {
-      const z = ROND_Z;
-      const base = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.9, 0.7, 24), stoneMat); base.position.set(AX, 0.35, z); areaGroup.add(base); solids.push(base); colliders.push(new THREE.Box3().setFromObject(base));
-      const water = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.2, 24), new THREE.MeshStandardMaterial({ color: 0x2f6f9c, transparent: true, opacity: 0.85, roughness: 0.2 })); water.position.set(AX, 0.7, z); areaGroup.add(water);
-      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 8, 12), stoneMat); col.position.set(AX, 4.4, z); col.castShadow = true; areaGroup.add(col);
-      const statue = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), new THREE.MeshStandardMaterial({ color: 0xc9a94a, metalness: 0.7, roughness: 0.3, emissive: 0x5a4310, emissiveIntensity: 0.4 })); statue.position.set(AX, 9, z); areaGroup.add(statue);
-    })();
-
-    // --- Eiffel Tower at the finale (behind the boss) -----------------------
-    buildEiffel(AX, -L - 2);
-
-    // --- Seine + a stone bridge along the far right flank (decorative) ------
-    (function seine() {
-      const rx = AX + (SHW + 22);
-      const river = new THREE.Mesh(new THREE.PlaneGeometry(24, 70), new THREE.MeshStandardMaterial({ color: 0x35617f, transparent: true, opacity: 0.9, roughness: 0.25, metalness: 0.1 }));
-      river.rotation.x = -Math.PI / 2; river.position.set(rx, -0.05, 92); areaGroup.add(river);
-      const quay = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 70), stoneMat); quay.position.set(AX + (SHW + 9), 1, 92); areaGroup.add(quay);
-      for (const bz of [80, 104]) { const arch = new THREE.Mesh(new THREE.TorusGeometry(3, 0.8, 8, 14, Math.PI), stoneMat); arch.position.set(rx, 1.5, bz); arch.rotation.x = Math.PI; areaGroup.add(arch); }
-    })();
-
-    // --- plane trees, café terraces, lamps, tricolor, metro sign ------------
     const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 0.9 });
     const leafMat = new THREE.MeshStandardMaterial({ color: 0x5a8a3a, roughness: 0.85 });
-    function tree(x, z) {
-      const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 3.2, 8), trunkMat); tr.position.set(x, 1.6, z); tr.castShadow = true; areaGroup.add(tr); solids.push(tr);
-      const cr = new THREE.Mesh(new THREE.IcosahedronGeometry(1.9, 1), leafMat); cr.position.set(x, 4.2, z); cr.castShadow = true; areaGroup.add(cr);
-    }
-    const awnCols = [0x9c2b2b, 0x2b5f9c, 0x2b8f5f, 0x7a5aa0];
-    function cafe(x, z, s) {
-      const g = new THREE.Group(); g.position.set(x, 0, z);
-      const awnMat = new THREE.MeshStandardMaterial({ color: awnCols[(Math.random() * awnCols.length) | 0], roughness: 0.6 });
-      const awn = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 4.5), awnMat);
-      awn.position.set(s * -0.2, 3, 0); g.add(awn);
-      for (let i = -1; i <= 1; i += 1) {
-        const table = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.9, 10), ironMat); table.position.set(0, 0.45, i * 1.4); g.add(table); solids.push(table);
-        for (const cz of [-0.5, 0.5]) { const chair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.9, 0.4), ironMat); chair.position.set(s * -0.6, 0.45, i * 1.4 + cz); g.add(chair); }
-      }
-      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
-    }
     const lampMat = new THREE.MeshStandardMaterial({ color: 0x16181e, roughness: 0.5, metalness: 0.6 });
     const glowMat = new THREE.MeshStandardMaterial({ color: 0xffe6a8, emissive: 0xffcf80, emissiveIntensity: 1.3, roughness: 0.4 });
-    function lamp(x, z) {
-      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 5, 8), lampMat); pole.position.set(x, 2.5, z); pole.castShadow = true; areaGroup.add(pole); solids.push(pole);
-      for (const dx of [-0.5, 0.5]) { const h = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), glowMat); h.position.set(x + dx, 5.1, z); areaGroup.add(h); }
-    }
-    // tricolor flag texture
-    const triMat = (() => {
-      const c = document.createElement("canvas"); c.width = 90; c.height = 60; const x = c.getContext("2d");
-      x.fillStyle = "#0055a4"; x.fillRect(0, 0, 30, 60); x.fillStyle = "#fff"; x.fillRect(30, 0, 30, 60); x.fillStyle = "#ef4135"; x.fillRect(60, 0, 30, 60);
-      return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide });
-    })();
-    for (let z = -L + 26; z < L - 10; z += 16) { tree(AX - (SHW + 2), z); tree(AX + (SHW + 2), z + 8); lamp(AX - (SHW + 1.5), z + 4); }
-    for (const [ex, z, s] of [[-(SHW + 2.2), 60, -1], [SHW + 2.2, 4, 1], [-(SHW + 2.2), -46, -1], [SHW + 2.2, -74, 1]]) cafe(AX + ex, z, s);
-    for (const [ex, z, ry] of [[-(innerX - 0.2), 24, Math.PI / 2], [innerX - 0.2, -30, -Math.PI / 2], [-(innerX - 0.2), -62, Math.PI / 2]]) {
-      const f = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), triMat); f.position.set(AX + ex, 7, z); f.rotation.y = ry; areaGroup.add(f);
+
+    parisSegments.length = 0;
+    for (let i = 0; i < PARIS_PATH.length - 1; i += 1) {
+      const a = PARIS_PATH[i], b = PARIS_PATH[i + 1];
+      parisSegments.push({
+        minX: AX + Math.min(a.x, b.x) - PHW, maxX: AX + Math.max(a.x, b.x) + PHW,
+        minZ: Math.min(a.z, b.z) - PHW, maxZ: Math.max(a.z, b.z) + PHW,
+      });
     }
 
-    // parked cars forming chicanes you weave around
+    function building(cx, cz, alongZ, w, mat) {
+      const h = 18 + Math.random() * 5, depth = 9;
+      const sizeX = alongZ ? depth : w, sizeZ = alongZ ? w : depth;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(sizeX, h, sizeZ), mat);
+      b.position.set(cx, h / 2, cz); b.castShadow = true; b.receiveShadow = true; areaGroup.add(b); solids.push(b);
+      const shop = new THREE.Mesh(new THREE.BoxGeometry(sizeX + 0.2, 3, sizeZ + 0.2), stoneMat); shop.position.set(cx, 1.5, cz); areaGroup.add(shop);
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(sizeX, 3.2, sizeZ), roofMat); roof.position.set(cx, h + 1.4, cz); roof.scale.set(0.86, 1, 0.86); roof.castShadow = true; areaGroup.add(roof);
+    }
+    function buildLeg(a, b) {
+      const vert = a.x === b.x;
+      const cx = AX + (a.x + b.x) / 2, cz = (a.z + b.z) / 2;
+      const span = vert ? Math.abs(b.z - a.z) : Math.abs(b.x - a.x);
+      const roadX = vert ? PHW * 2 : span + PHW * 2, roadZ = vert ? span + PHW * 2 : PHW * 2;
+      const road = new THREE.Mesh(new THREE.PlaneGeometry(roadX, roadZ), cobbleMat);
+      road.rotation.x = -Math.PI / 2; road.position.set(cx, 0, cz); road.receiveShadow = true; areaGroup.add(road); solids.push(road);
+      for (const s of [-1, 1]) {
+        const swX = vert ? 6 : roadX, swZ = vert ? roadZ : 6;
+        const sx = vert ? cx + s * (PHW + 3) : cx, sz = vert ? cz : cz + s * (PHW + 3);
+        const sw = new THREE.Mesh(new THREE.BoxGeometry(swX, 0.2, swZ), paveMat); sw.position.set(sx, 0.1, sz); sw.receiveShadow = true; areaGroup.add(sw); solids.push(sw);
+      }
+      const lo = vert ? Math.min(a.z, b.z) : Math.min(a.x, b.x);
+      const hi = vert ? Math.max(a.z, b.z) : Math.max(a.x, b.x);
+      for (const s of [-1, 1]) {
+        for (let t = lo + 8; t < hi - 4; t += 13) {
+          if (Math.random() < 0.14) continue;
+          const bx = vert ? cx + s * (PHW + 9) : AX + t;
+          const bz = vert ? t : cz + s * (PHW + 9);
+          building(bx, bz, vert, 11, limeMats[(Math.random() * limeMats.length) | 0]);
+        }
+        for (let t = lo + 12; t < hi - 6; t += 22) {
+          const tx = vert ? cx + s * (PHW + 1.6) : AX + t;
+          const tz = vert ? t : cz + s * (PHW + 1.6);
+          const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 3.2, 8), trunkMat); tr.position.set(tx, 1.6, tz); tr.castShadow = true; areaGroup.add(tr); solids.push(tr);
+          const cr = new THREE.Mesh(new THREE.IcosahedronGeometry(1.9, 1), leafMat); cr.position.set(tx, 4.2, tz); cr.castShadow = true; areaGroup.add(cr);
+          const px = vert ? cx + s * (PHW + 1.4) : AX + t + 8;
+          const pz = vert ? t + 8 : cz + s * (PHW + 1.4);
+          const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 5, 8), lampMat); pole.position.set(px, 2.5, pz); areaGroup.add(pole); solids.push(pole);
+          const hd = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), glowMat); hd.position.set(px, 5.1, pz); areaGroup.add(hd);
+        }
+      }
+    }
+    for (let i = 0; i < PARIS_PATH.length - 1; i += 1) buildLeg(PARIS_PATH[i], PARIS_PATH[i + 1]);
+
+    // Arc de Triomphe over the P1→P2 turn (pass under it)
+    (function arc() {
+      const z = 48, x0 = AX + 20, aw = 16, ah = 17, at = 8;
+      for (const sz of [-1, 1]) {
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(at, ah, 3.4), stoneMat);
+        pier.position.set(x0, ah / 2, z + sz * (aw / 2)); pier.castShadow = true; areaGroup.add(pier); solids.push(pier);
+        colliders.push(new THREE.Box3().setFromObject(pier));
+      }
+      const top = new THREE.Mesh(new THREE.BoxGeometry(at + 1, 5, aw + 3.4), stoneMat); top.position.set(x0, ah + 2.5, z); top.castShadow = true; areaGroup.add(top); solids.push(top);
+      const vault = new THREE.Mesh(new THREE.TorusGeometry(aw / 2 - 1.8, 1.4, 8, 16, Math.PI), stoneMat); vault.position.set(x0, ah - 2, z); vault.rotation.set(Math.PI, Math.PI / 2, 0); areaGroup.add(vault);
+      const attic = new THREE.Mesh(new THREE.BoxGeometry(at + 1.6, 3, aw + 4), stoneMat); attic.position.set(x0, ah + 6.5, z); areaGroup.add(attic);
+    })();
+    // roundabout island at the P2→P3 corner (round it)
+    (function rond() {
+      const cx = AX + 88, cz = 48;
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.7, 0.7, 24), stoneMat); base.position.set(cx, 0.35, cz); areaGroup.add(base); solids.push(base); colliders.push(new THREE.Box3().setFromObject(base));
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 9, 12), stoneMat); col.position.set(cx, 4.9, cz); col.castShadow = true; areaGroup.add(col);
+      const statue = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), new THREE.MeshStandardMaterial({ color: 0xc9a94a, metalness: 0.7, roughness: 0.3, emissive: 0x5a4310, emissiveIntensity: 0.4 })); statue.position.set(cx, 9.9, cz); areaGroup.add(statue);
+    })();
+    // Eiffel Tower at the finale (beyond the boss)
+    buildEiffel(AX - 44, -168);
+    // Seine strip + bridge alongside leg D
+    (function seine() {
+      const river = new THREE.Mesh(new THREE.PlaneGeometry(120, 20), new THREE.MeshStandardMaterial({ color: 0x35617f, transparent: true, opacity: 0.9, roughness: 0.25 }));
+      river.rotation.x = -Math.PI / 2; river.position.set(AX + 22, -0.05, -66); areaGroup.add(river);
+      for (const bx of [AX - 10, AX + 54]) { const arch = new THREE.Mesh(new THREE.TorusGeometry(3, 0.8, 8, 14, Math.PI), stoneMat); arch.position.set(bx, 1.4, -66); arch.rotation.x = Math.PI; areaGroup.add(arch); }
+    })();
+
+    // parked cars (weave obstacles) + cover
     const carPaint = [0x9a9a9a, 0x2a2f3a, 0x6a1e1e, 0x27506a];
-    let ci = 0;
-    for (const [ex, z, ry] of [[6, 96, 0.5], [-6, 54, -0.5], [7, 10, 1.3], [-6, -36, 0.6], [6, -66, -1.1]]) {
-      const g = new THREE.Group(); g.position.set(AX + ex, 0, z); g.rotation.y = ry;
-      const paint = new THREE.MeshStandardMaterial({ color: carPaint[ci++ % carPaint.length], roughness: 0.4, metalness: 0.5 });
+    function car(cx, cz, ry, col) {
+      const g = new THREE.Group(); g.position.set(cx, 0, cz); g.rotation.y = ry;
+      const paint = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.5 });
       const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 4.0), paint); body.position.y = 0.7; body.castShadow = true; g.add(body); solids.push(body);
       const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.8, 2.0), paint); cab.position.set(0, 1.45, -0.1); g.add(cab); solids.push(cab);
       const win = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.62, 1.8), winMat); win.position.set(0, 1.5, -0.1); g.add(win);
-      for (const wz of [-1.3, 1.3]) for (const wx of [-0.95, 0.95]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12), new THREE.MeshStandardMaterial({ color: 0x0e0e10 })); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.4, wz); g.add(wh); }
       areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
     }
-
-    // concrete cover for firefights
-    for (const [ex, z] of [[-4, 80], [5, 26], [-6, 0], [4, -50], [-3, -80]]) {
-      const bar = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 1.1), stoneMat); bar.position.set(AX + ex, 0.55, z); bar.castShadow = true; areaGroup.add(bar); solids.push(bar); colliders.push(new THREE.Box3().setFromObject(bar));
+    let ci = 0;
+    for (const [lx, z, ry] of [[5, 90, 0.4], [40, 48, 1.6], [88, 4, 0.3], [20, -44, 1.6], [-44, -100, 0.5]]) car(AX + lx, z, ry, carPaint[ci++ % carPaint.length]);
+    for (const [lx, z] of [[-5, 70], [60, 48], [88, -18], [0, -44], [-44, -78]]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 1.1), stoneMat); bar.position.set(AX + lx, 0.55, z); bar.castShadow = true; areaGroup.add(bar); solids.push(bar); colliders.push(new THREE.Box3().setFromObject(bar));
     }
 
-    // ammo supply points (within reach), loot crates, gates, extract pad
-    function ammoPoint(z, s) {
-      const x = AX + s * (SHW - 1.6);
+    // ammo/loot along the winding route
+    function ammoPoint(lx, z) {
+      const x = AX + lx;
       const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.05, 1.05), new THREE.MeshStandardMaterial({ color: 0x3f4a2c, roughness: 0.7 })); crate.position.set(x, 0.62, z); crate.castShadow = true; areaGroup.add(crate); solids.push(crate);
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.18, 1.09), new THREE.MeshStandardMaterial({ color: 0xffcf3a, emissive: 0xffb000, emissiveIntensity: 0.55 })); stripe.position.set(x, 0.95, z); areaGroup.add(stripe);
       const lbl = makeLabel("弹药补给 [E]", "#ffd23a"); lbl.position.set(x, 1.8, z); areaGroup.add(lbl);
       interactables.push({ name: "弹药补给", action: "ammo", pos: new THREE.Vector3(x, 0, z), radius: 3.0 });
     }
-    ammoPoint(86, 1); ammoPoint(30, -1); ammoPoint(-24, 1); ammoPoint(-78, -1);
-    makeSupplyCrate(-(SHW - 1.6), 50, "pc1");
-    makeSupplyCrate(SHW - 1.6, -38, "pc2");
-    for (const z of GATE_Z) makeGate(z);
-    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
-    const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, RL - 8); areaGroup.add(exLabel);
-    interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, RL - 8), radius: 2.6 });
+    ammoPoint(8, 100); ammoPoint(60, 48); ammoPoint(88, -20); ammoPoint(10, -44); ammoPoint(-44, -110);
+    makeSupplyCrate(9, 64, "pc1"); makeSupplyCrate(88, 20, "pc2"); makeSupplyCrate(-44, -120, "pc3");
+
+    // gates seal each turn until that leg's stage is cleared
+    makeGate(AX + 6, 48, "x");   // G0 → entry to leg B
+    makeGate(AX + 88, 42, "z");  // G1 → entry to leg C
+    makeGate(AX + 82, -44, "x"); // G2 → entry to leg D
+    makeGate(AX - 44, -50, "z"); // G3 → entry to leg E
+
+    // extract pad at the spawn end
+    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, 116).rotateX(-Math.PI / 2));
+    const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, 116); areaGroup.add(exLabel);
+    interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, 116), radius: 2.6 });
   }
 
   // Build both maps at their own offsets/groups (only one is shown at a time).
@@ -1146,13 +1176,13 @@ export function createWorld(scene, hooks = {}) {
 
   // Enemy tiers: colour-coded so elites read at a glance. dmgMul scales the
   // damage they deal; hpMul/scale set their toughness/size.
-  // Faster, melee-forward enemies for pressure. speed is higher across the board.
+  // Melee-only swarm: fast, aggressive, they rush you and strike in melee.
   const TIERS = {
-    grunt: { tint: null, emissive: null, hpMul: 1, dmgMul: 1, speed: 4.0, scale: 1 },
-    elite1: { tint: 0x4aa3ff, emissive: 0x123a6a, hpMul: 1.7, dmgMul: 1.3, speed: 4.6, scale: 1.12, name: "精英" },
-    elite2: { tint: 0xb06bff, emissive: 0x40206a, hpMul: 2.6, dmgMul: 1.6, speed: 4.0, scale: 1.22, name: "重装精英" },
-    heavy: { tint: 0xd06a5a, emissive: 0x902018, hpMul: 4, dmgMul: 1.8, speed: 2.8, scale: 1.45, name: "重型" },
-    boss: { tint: 0xffb020, emissive: 0x7a3a00, hpMul: 1, dmgMul: 2.4, speed: 3.0, scale: 2.4, name: "首领" },
+    grunt: { tint: null, emissive: null, hpMul: 1, dmgMul: 1, speed: 5.6, scale: 1 },
+    elite1: { tint: 0x4aa3ff, emissive: 0x123a6a, hpMul: 1.7, dmgMul: 1.3, speed: 6.2, scale: 1.12, name: "精英" },
+    elite2: { tint: 0xb06bff, emissive: 0x40206a, hpMul: 2.6, dmgMul: 1.6, speed: 5.2, scale: 1.22, name: "重装精英" },
+    heavy: { tint: 0xd06a5a, emissive: 0x902018, hpMul: 4, dmgMul: 1.8, speed: 3.8, scale: 1.45, name: "重型" },
+    boss: { tint: 0xffb020, emissive: 0x7a3a00, hpMul: 1, dmgMul: 2.4, speed: 5.0, scale: 2.4, name: "首领" },
   };
 
   // makeEnemy(x, z, opts) — x/z are relative to AX. opts: { hp, tier, dmgMul, boss, name }.
@@ -1236,37 +1266,48 @@ export function createWorld(scene, hooks = {}) {
   // (an index into the gate list). The gate opens only when the squad is
   // cleared, so you must fight your way forward — no running to the boss.
   const LONDON_STAGES = [
-    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 街口", sub: "清空敌人后闸门开启", zone: [70, 90],
-      squad: [{ tier: "grunt", hp: 55, n: 4 }] },
-    { triggerZ: 62, gate: 1, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [16, 56],
-      squad: [{ tier: "grunt", hp: 75, n: 5 }, { tier: "elite1", hp: 150, n: 1 }] },
-    { triggerZ: 10, gate: 2, name: "第 3 区 · 广场", sub: "火力压制，蓝色精英", zone: [-36, 4],
-      squad: [{ tier: "grunt", hp: 110, n: 6 }, { tier: "elite1", hp: 180, n: 2 }] },
-    { triggerZ: -42, gate: 3, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-80, -48],
-      squad: [{ tier: "elite2", hp: 320, n: 3 }, { tier: "heavy", hp: 520, n: 1 }] },
+    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 街口", sub: "清空敌人后闸门开启", zone: [66, 92],
+      squad: [{ tier: "grunt", hp: 55, n: 12 }] },
+    { triggerZ: 62, gate: 1, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [12, 58],
+      squad: [{ tier: "grunt", hp: 75, n: 16 }, { tier: "elite1", hp: 150, n: 3 }] },
+    { triggerZ: 10, gate: 2, name: "第 3 区 · 广场", sub: "潮水般的敌人，蓝色精英", zone: [-38, 6],
+      squad: [{ tier: "grunt", hp: 110, n: 20 }, { tier: "elite1", hp: 180, n: 4 }] },
+    { triggerZ: -42, gate: 3, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-82, -46],
+      squad: [{ tier: "grunt", hp: 130, n: 16 }, { tier: "elite2", hp: 320, n: 5 }, { tier: "heavy", hp: 520, n: 2 }] },
     { triggerZ: -86, gate: -1, name: "最终 · 大本钟", sub: "⚠ 最终首领现身", zone: [-100, -92], boss: true,
-      bossName: "钢铁首领", bossHp: 4200, squad: [{ tier: "elite1", hp: 200, n: 2 }] },
+      bossName: "钢铁首领", bossHp: 4200, squad: [{ tier: "grunt", hp: 120, n: 8 }, { tier: "elite1", hp: 200, n: 4 }] },
   ];
-  // Paris is a tougher second campaign (more elites, bigger boss).
+  // Paris is a tougher second campaign (bigger swarms, bigger boss).
+  // Paris stages are PATH-aware: `triggerPt`/`spawnPt`/`bossPt` are {x (local),z}
+  // points along the winding route (instead of London's z thresholds/zone).
   const PARIS_STAGES = [
-    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 林荫大道", sub: "清空敌人后闸门开启", zone: [70, 90],
-      squad: [{ tier: "grunt", hp: 80, n: 5 }] },
-    { triggerZ: 62, gate: 1, name: "第 2 区 · 凯旋门", sub: "穿过凯旋门，精英拦截", zone: [16, 56],
-      squad: [{ tier: "grunt", hp: 110, n: 5 }, { tier: "elite1", hp: 200, n: 2 }] },
-    { triggerZ: 10, gate: 2, name: "第 3 区 · 环岛广场", sub: "重装精英把守环岛", zone: [-36, 4],
-      squad: [{ tier: "grunt", hp: 150, n: 6 }, { tier: "elite2", hp: 340, n: 2 }] },
-    { triggerZ: -42, gate: 3, name: "第 4 区 · 塞纳河畔", sub: "重型单位增援", zone: [-80, -48],
-      squad: [{ tier: "elite2", hp: 420, n: 3 }, { tier: "heavy", hp: 680, n: 2 }] },
-    { triggerZ: -86, gate: -1, name: "最终 · 埃菲尔铁塔", sub: "⚠ 铁塔首领现身", zone: [-100, -92], boss: true,
-      bossName: "铁塔守卫者", bossHp: 6000, squad: [{ tier: "elite2", hp: 320, n: 2 }] },
+    { triggerPt: { x: 0, z: 112 }, spawnPt: { x: 0, z: 82 }, gate: 0, name: "第 1 区 · 林荫大道", sub: "清空敌人后闸门开启",
+      squad: [{ tier: "grunt", hp: 80, n: 16 }] },
+    { triggerPt: { x: 16, z: 48 }, spawnPt: { x: 50, z: 48 }, gate: 1, name: "第 2 区 · 凯旋门", sub: "穿过凯旋门，精英拦截",
+      squad: [{ tier: "grunt", hp: 110, n: 20 }, { tier: "elite1", hp: 200, n: 4 }] },
+    { triggerPt: { x: 88, z: 36 }, spawnPt: { x: 88, z: -4 }, gate: 2, name: "第 3 区 · 环岛广场", sub: "重装精英把守环岛",
+      squad: [{ tier: "grunt", hp: 150, n: 24 }, { tier: "elite2", hp: 340, n: 5 }] },
+    { triggerPt: { x: 76, z: -44 }, spawnPt: { x: 20, z: -44 }, gate: 3, name: "第 4 区 · 塞纳河畔", sub: "重型单位增援",
+      squad: [{ tier: "grunt", hp: 170, n: 18 }, { tier: "elite2", hp: 420, n: 6 }, { tier: "heavy", hp: 680, n: 3 }] },
+    { triggerPt: { x: -44, z: -58 }, spawnPt: { x: -44, z: -100 }, bossPt: { x: -44, z: -140 }, gate: -1,
+      name: "最终 · 埃菲尔铁塔", sub: "⚠ 铁塔首领现身", boss: true,
+      bossName: "铁塔守卫者", bossHp: 6000, squad: [{ tier: "grunt", hp: 150, n: 10 }, { tier: "elite2", hp: 320, n: 4 }] },
   ];
   let STAGES = LONDON_STAGES; // active map's stages (set on deploy)
+  const _tmpV = new THREE.Vector3();
 
-  function spawnSquad(entries, zone) {
-    for (const e of entries) {
+  function spawnSquad(st) {
+    for (const e of st.squad) {
       for (let i = 0; i < e.n; i += 1) {
-        const ex = (Math.random() - 0.5) * (SHW * 2 - 3);
-        const ez = zone[0] + Math.random() * (zone[1] - zone[0]);
+        let ex, ez;
+        if (st.spawnPt) { // path-aware: cluster around the spawn point, then clamp to the corridor
+          ex = st.spawnPt.x + (Math.random() - 0.5) * (SHW * 2 - 4);
+          ez = st.spawnPt.z + (Math.random() - 0.5) * 26;
+          _tmpV.set(AX + ex, 0, ez); clampToArea(_tmpV); ex = _tmpV.x - AX; ez = _tmpV.z;
+        } else { // London zone form
+          ex = (Math.random() - 0.5) * (SHW * 2 - 3);
+          ez = st.zone[0] + Math.random() * (st.zone[1] - st.zone[0]);
+        }
         makeEnemy(ex, ez, { tier: e.tier, hp: e.hp });
       }
     }
@@ -1276,9 +1317,10 @@ export function createWorld(scene, hooks = {}) {
     const st = STAGES[idx];
     if (!st) return;
     state.stage = idx + 1;
-    spawnSquad(st.squad, st.zone);
+    spawnSquad(st);
     if (st.boss) {
-      const boss = makeEnemy(0, -110, { boss: true, tier: "boss", hp: st.bossHp || 4200, name: st.bossName || "最终首领" });
+      const bp = st.bossPt || { x: 0, z: -110 };
+      const boss = makeEnemy(bp.x, bp.z, { boss: true, tier: "boss", hp: st.bossHp || 4200, name: st.bossName || "最终首领" });
       state.boss = boss;
       if (hooks.onBossSpawn) hooks.onBossSpawn(boss);
     }
@@ -1430,7 +1472,7 @@ export function createWorld(scene, hooks = {}) {
       state.score += 1;
       if (ctrl.boss) {
         state.boss = null;
-        spawnBossExtract(); // #5: an extraction point appears at the boss arena
+        spawnBossExtract(ctrl.group.position); // #5: extraction appears where the boss fell
         if (hooks.onBossDefeated) hooks.onBossDefeated();
       }
       return true;
@@ -1438,16 +1480,16 @@ export function createWorld(scene, hooks = {}) {
     return false;
   }
 
-  // Extra extraction pad spawned at the boss end after the boss dies, so you
-  // don't have to walk the whole route back.
+  // Extra extraction pad spawned right where the boss died, so you don't have
+  // to walk the whole route back.
   let bossExtract = null;
-  function spawnBossExtract() {
+  function spawnBossExtract(pos) {
     clearBossExtract();
-    const z = -RL + 14;
-    const ring = place(new THREE.Mesh(new THREE.RingGeometry(1.3, 1.8, 40), mint), AX, 0.18, z).rotateX(-Math.PI / 2);
+    const ex = pos ? pos.x : AX, ez = pos ? pos.z : -RL + 14;
+    const ring = place(new THREE.Mesh(new THREE.RingGeometry(1.3, 1.8, 40), mint), ex, 0.18, ez).rotateX(-Math.PI / 2);
     areaGroup.add(ring);
-    const lbl = makeLabel("撤离点 [E]", "#8effb0"); lbl.position.set(AX, 2.6, z); areaGroup.add(lbl);
-    const it = { name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, z), radius: 3.0 };
+    const lbl = makeLabel("撤离点 [E]", "#8effb0"); lbl.position.set(ex, 2.6, ez); areaGroup.add(lbl);
+    const it = { name: "撤离点", action: "extract", pos: new THREE.Vector3(ex, 0, ez), radius: 3.4 };
     interactables.push(it);
     bossExtract = { ring, lbl, it };
   }
@@ -1461,17 +1503,17 @@ export function createWorld(scene, hooks = {}) {
   // Deploy into a specific map ("london" | "paris"). Sets the active offset,
   // group, stages, gates and drop table, then resets the run.
   const MAPS = {
-    london: { group: londonGroup, ax: AXL, stages: LONDON_STAGES, gates: londonGates, loot: LONDON_LOOT,
-      fog: londonFog, bg: londonBg, key: 0xdfe4ea, keyI: 2.1, hemiSky: 0xc4ccd6, hemiGround: 0x555a60, hemiI: 1.15 },
-    paris: { group: parisGroup, ax: AXP, stages: PARIS_STAGES, gates: parisGates, loot: PARIS_LOOT,
-      fog: parisFog, bg: parisBg, key: 0xffe7c0, keyI: 2.5, hemiSky: 0xe6d3b0, hemiGround: 0x6a5a44, hemiI: 1.2 },
+    london: { group: londonGroup, ax: AXL, stages: LONDON_STAGES, gates: londonGates, loot: LONDON_LOOT, segments: londonSegments,
+      spawnZ: RL - 12, fog: londonFog, bg: londonBg, key: 0xdfe4ea, keyI: 2.1, hemiSky: 0xc4ccd6, hemiGround: 0x555a60, hemiI: 1.15 },
+    paris: { group: parisGroup, ax: AXP, stages: PARIS_STAGES, gates: parisGates, loot: PARIS_LOOT, segments: parisSegments,
+      spawnZ: 116, fog: parisFog, bg: parisBg, key: 0xffe7c0, keyI: 2.5, hemiSky: 0xe6d3b0, hemiGround: 0x6a5a44, hemiI: 1.2 },
   };
   function enterArea(mapId = "london") {
     const m = MAPS[mapId] || MAPS.london;
     // switch the active map wiring
-    AX = m.ax; areaGroup = m.group; STAGES = m.stages; gates = m.gates; activeLoot = m.loot;
-    areaSpawn.set(AX, 0, RL - 12);
-    extractPos.set(AX, 0, RL - 8);
+    AX = m.ax; areaGroup = m.group; STAGES = m.stages; gates = m.gates; activeLoot = m.loot; activeSegments = m.segments;
+    areaSpawn.set(AX, 0, m.spawnZ);
+    extractPos.set(AX, 0, m.spawnZ + 4);
     // atmosphere + sun
     scene.fog = m.fog; scene.background = m.bg;
     key.color.set(m.key); key.intensity = m.keyI;
@@ -1481,6 +1523,7 @@ export function createWorld(scene, hooks = {}) {
     for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
     londonGroup.visible = mapId === "london";
     parisGroup.visible = mapId === "paris";
+    setSky(mapId);
     clearBossExtract();
     state.inArea = true; state.wave = 0; state.stage = 0; state.boss = null; state.activeGate = -1;
     resetGates();
@@ -1499,7 +1542,7 @@ export function createWorld(scene, hooks = {}) {
     sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.far = 70;
     sc.updateProjectionMatrix();
     hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
-    londonGroup.visible = false; parisGroup.visible = false;
+    londonGroup.visible = false; parisGroup.visible = false; skyGroup.visible = false;
     clearBossExtract();
     state.inArea = false;
     state.wave = 0;
@@ -1536,6 +1579,13 @@ export function createWorld(scene, hooks = {}) {
   function update(dt, playerState) {
     state.time += dt;
     const playerPos = playerState ? playerState.pos : null;
+    // drifting clouds (relative to the sky group centred on the active map)
+    if (skyGroup.visible) {
+      for (const c of clouds) {
+        c.spr.position.x += c.speed * dt;
+        if (c.spr.position.x > 170) c.spr.position.x = -170;
+      }
+    }
     for (const d of decor) {
       if (d.axis === "y") d.mesh.rotation.y += dt * d.spin;
       else d.mesh.rotation.z += dt * d.spin;
@@ -1596,8 +1646,7 @@ export function createWorld(scene, hooks = {}) {
             const step = (e.speed * dt) / Math.max(1, moveMag);
             e.group.position.x += moveX * step;
             e.group.position.z += moveZ * step;
-            e.group.position.x = Math.min(AX + SHW - 0.6, Math.max(AX - SHW + 0.6, e.group.position.x));
-            e.group.position.z = Math.min(RL - 1.5, Math.max(-RL + 1.5, e.group.position.z));
+            clampToArea(e.group.position); // keep enemies on the walkable route
           }
           const movingNow = moveMag > 0.03 && e.stagger <= 0;
           // --- BODY FACING (anti foot-slide) ---------------------------------
@@ -1640,35 +1689,29 @@ export function createWorld(scene, hooks = {}) {
               }
             }
           }
-          // MELEE-primary engagement: in your face they slash on a fast timer;
-          // at mid range they only occasionally take a pot-shot (secondary).
-          const MELEE_RANGE = e.boss ? 3.2 : 2.2;
+          // MELEE-ONLY: they rush in and strike; no ranged fire at all. Each
+          // strike plays a visible lunge (meleeT drives a forward-lean below).
+          const MELEE_RANGE = e.boss ? 3.4 : 2.3;
           if (dist < MELEE_RANGE && e.stagger <= 0) {
             if (state.time >= (e.nextMelee || 0)) {
-              e.nextMelee = state.time + (e.boss ? 1.0 : 0.85) + Math.random() * 0.3;
-              const md = Math.round((e.boss ? 22 : 9 + Math.random() * 6) * (e.dmgMul || 1));
+              e.nextMelee = state.time + (e.boss ? 0.85 : 0.7) + Math.random() * 0.25;
+              e.meleeT = 0.28; // start the lunge animation
+              const md = Math.round((e.boss ? 24 : 8 + Math.random() * 6) * (e.dmgMul || 1));
               if (hooks.onPlayerHit) hooks.onPlayerHit(md);
               audio.enemyShot();
-              if (e.character && e.character.flash) e.character.flash(); // lunge flash
-            }
-          } else {
-            // ranged is now secondary: only some enemies, at mid range, slowly
-            const ENGAGE_RANGE = e.heavy ? 22 : 16;
-            if (dist < ENGAGE_RANGE && dist > MELEE_RANGE) {
-              if (!e.engaged) { e.engaged = true; e.nextShot = Math.max(e.nextShot, state.time + 0.6 + Math.random() * 0.8); }
-              if (state.time >= e.nextShot && e.stagger <= 0) {
-                e.nextShot = state.time + (e.heavy ? 2.6 : 2.2) + Math.random() * 1.4;
-                enemyFire(e, playerState, dist);
-                e.flashT = 0.07;
-                if (e.flashMesh) e.flashMesh.visible = true;
-              }
-            } else {
-              e.engaged = false;
+              if (e.character && e.character.flash) e.character.flash();
             }
           }
-          if (e.flashT > 0) {
-            e.flashT -= dt;
-            if (e.flashT <= 0 && e.flashMesh) e.flashMesh.visible = false;
+          // melee lunge animation: a quick forward lean + jab of the model
+          if (e.meleeT > 0) {
+            e.meleeT -= dt;
+            const p = 1 - Math.max(0, e.meleeT) / 0.28; // 0 -> 1
+            const arc = Math.sin(p * Math.PI); // 0 -> 1 -> 0
+            const m = e.character ? e.character.group : e.rig;
+            if (m) { m.rotation.x = -arc * 0.5; m.position.z = arc * 0.35; }
+          } else {
+            const m = e.character ? e.character.group : e.rig;
+            if (m && (m.rotation.x !== 0 || m.position.z !== 0)) { m.rotation.x *= Math.max(0, 1 - dt * 12); m.position.z *= Math.max(0, 1 - dt * 12); }
           }
         } else {
           // outside a combat area: just stand and face the player
@@ -1727,11 +1770,14 @@ export function createWorld(scene, hooks = {}) {
         tracers.splice(i, 1);
       }
     }
-    // stage progression: as the player pushes forward (z decreasing), each
-    // stage triggers once at its threshold and spawns its squad ahead.
+    // stage progression: each stage triggers as the player reaches it — by a
+    // z threshold (London straight route) or proximity to a path point (Paris).
     if (state.inArea && playerPos && state.stage < STAGES.length) {
       const next = STAGES[state.stage];
-      if (playerPos.z <= next.triggerZ) startStage(state.stage);
+      const reached = next.triggerPt
+        ? Math.hypot(playerPos.x - (AX + next.triggerPt.x), playerPos.z - next.triggerPt.z) < 13
+        : playerPos.z <= next.triggerZ;
+      if (reached) startStage(state.stage);
     }
     // gate flow: a sealed gate opens the moment its stage's squad is cleared
     if (state.inArea) {
@@ -1784,6 +1830,6 @@ export function createWorld(scene, hooks = {}) {
   return {
     ROOM, colliders, solids, targets, interactables, state, enemies, loot, supplyCrates,
     damageTarget, damageEnemy, explodeAt, getHittables, update, spawnPlayerTracer, openSupplyCrate,
-    enterArea, enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
+    enterArea, enterArea1, extract, enemiesLeft, clampToArea, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
   };
 }

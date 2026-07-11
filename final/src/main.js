@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711008";
-import { createPlayer } from "./player.js?v=260711008";
-import { createWeapons } from "./weapons.js?v=260711008";
-import { createUI } from "./ui.js?v=260711008";
-import "./shell.js?v=260711008"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711008";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711008";
-import { audio } from "./audio.js?v=260711008";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711008";
-import { xpNeed } from "./account.js?v=260711008";
-import { createProfile } from "./profile.js?v=260711008";
+import { createWorld } from "./world.js?v=260711009";
+import { createPlayer } from "./player.js?v=260711009";
+import { createWeapons } from "./weapons.js?v=260711009";
+import { createUI } from "./ui.js?v=260711009";
+import "./shell.js?v=260711009"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711009";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711009";
+import { audio } from "./audio.js?v=260711009";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711009";
+import { xpNeed } from "./account.js?v=260711009";
+import { createProfile } from "./profile.js?v=260711009";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711008";
+const BUILD_VERSION = "260711009";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;

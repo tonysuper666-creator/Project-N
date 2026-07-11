@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { audio } from "./audio.js?v=260711008";
+import { audio } from "./audio.js?v=260711009";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 
@@ -122,13 +122,10 @@ export function createPlayer(camera, world) {
 
   function resolveCollisions() {
     const r = state.radius;
-    // clamp to the current region's bounds (base, or the far Area 1 room)
-    if (world.state && world.state.inArea && world.areaSpawn) {
-      const cx = world.areaSpawn.x;
-      const hx = (world.areaHalfX || 11) - 0.5 - r;
-      const hz = (world.areaHalfZ || 13) - 0.5 - r;
-      state.pos.x = clamp(state.pos.x, cx - hx, cx + hx);
-      state.pos.z = clamp(state.pos.z, -hz, hz);
+    // clamp to the current region's bounds — a winding map uses a segment
+    // union (clampToArea); the base uses a simple square room.
+    if (world.state && world.state.inArea && world.clampToArea) {
+      world.clampToArea(state.pos);
     } else {
       const limit = world.ROOM - 0.5 - r;
       state.pos.x = clamp(state.pos.x, -limit, limit);

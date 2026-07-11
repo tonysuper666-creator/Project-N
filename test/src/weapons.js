@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711008";
-import { audio } from "./audio.js?v=260711008";
+import { createViewmodel } from "./viewmodel.js?v=260711009";
+import { audio } from "./audio.js?v=260711009";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -52,13 +52,13 @@ const LASER_SNIPER_DEF = {
   id: "lasersniper", name: "激光狙击枪", mode: "auto", damage: 95, fireRate: 0.25,
   mag: 12, reserve: 72, reload: 2.2, range: 340, recoil: 0.05, kick: 0.02,
   vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
-  scope: true, zoomFov: 32,
+  scope: true, zoomFov: 32, pierce: true, // beam punches through enemies in a line
 };
 // Rocket launcher: fires an explosive PROJECTILE (not hitscan). Single shot,
 // high AOE, fast flat-shooting rocket (low drop). vm rifle for now.
 const ROCKET_DEF = {
   id: "rocket", name: "火箭筒", mode: "semi", fireRate: 1.0,
-  mag: 1, reserve: 12, reload: 2.4, recoil: 0.14, kick: 0.05,
+  mag: 1, reserve: 12, reload: 1.6, recoil: 0.14, kick: 0.05, // +50% faster reload
   vm: "rifle", sound: "rocket", projectile: true,
   projSpeed: 70, projGravity: 6, aoeRadius: 6.5, aoeDamage: 200, projColor: 0xffa040,
 };
@@ -208,7 +208,25 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   // can draw a tracer.
   const devUp = new THREE.Vector3();
   const devRight = new THREE.Vector3();
-  function damageAt(range, damage, spread = 0) {
+  function applyHit(obj, point, damage) {
+    if (obj.userData && obj.userData.type === "target") {
+      const killed = world.damageTarget(obj, damage);
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "target");
+      if (hooks.onDamageNumber) hooks.onDamageNumber(point, damage, false);
+    } else if (obj.userData && obj.userData.type === "enemy") {
+      const isHead = obj.userData.part === "head"; // head/chest/limb multipliers
+      const applied = damage * (obj.userData.mult || 1);
+      const ctrl = obj.userData.enemy;
+      const killed = world.damageEnemy(ctrl, applied);
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
+      if (hooks.onDamageNumber) hooks.onDamageNumber(point, applied, isHead);
+    } else if (obj.userData && typeof obj.userData.onHit === "function") {
+      obj.userData.onHit(damage);
+      if (hooks.onHitmarker) hooks.onHitmarker(false);
+    }
+  }
+
+  function damageAt(range, damage, spread = 0, pierce = false) {
     ray.setFromCamera(screenCenter, camera);
     if (spread > 0) { // deviate the ray inside the spread cone
       const a = Math.random() * Math.PI * 2;
@@ -225,24 +243,27 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (hits.length === 0) {
       return ray.ray.origin.clone().addScaledVector(ray.ray.direction, range);
     }
+    if (pierce) {
+      // punch through enemies in a line; stop at the first solid wall.
+      const hitEnemies = new Set();
+      let end = null;
+      for (const h of hits) {
+        const o = h.object;
+        const isEnemy = o.userData && o.userData.type === "enemy";
+        const isTarget = o.userData && o.userData.type === "target";
+        if (isEnemy) {
+          if (!hitEnemies.has(o.userData.enemy)) { hitEnemies.add(o.userData.enemy); applyHit(o, h.point, damage); }
+          continue; // keep going through the enemy
+        }
+        if (isTarget) { applyHit(o, h.point, damage); continue; }
+        // a real solid (wall/prop) stops the beam
+        spawnImpact(h.point); end = h.point.clone(); break;
+      }
+      return end || ray.ray.origin.clone().addScaledVector(ray.ray.direction, range);
+    }
     const hit = hits[0];
     spawnImpact(hit.point);
-    const obj = hit.object;
-    if (obj.userData && obj.userData.type === "target") {
-      const killed = world.damageTarget(obj, damage);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed, "target");
-      if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, damage, false);
-    } else if (obj.userData && obj.userData.type === "enemy") {
-      const isHead = obj.userData.part === "head"; // head/chest/limb multipliers
-      const applied = damage * (obj.userData.mult || 1);
-      const ctrl = obj.userData.enemy;
-      const killed = world.damageEnemy(ctrl, applied);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
-      if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, applied, isHead);
-    } else if (obj.userData && typeof obj.userData.onHit === "function") {
-      obj.userData.onHit(damage); // e.g. a networked opponent in the 1v1 mode
-      if (hooks.onHitmarker) hooks.onHitmarker(false);
-    }
+    applyHit(hit.object, hit.point, damage);
     return hit.point.clone();
   }
 
@@ -358,7 +379,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     audio.shot(w.def.sound || w.def.id);
     if (w.def.projectile) { spawnRocket(w.def); return; } // explosive projectile, no hitscan
     spawnCasing();
-    const end = damageAt(w.def.range, w.def.damage, spread);
+    const end = damageAt(w.def.range, w.def.damage, spread, !!w.def.pierce);
     // brief bullet tracer (worlds that support it draw the line). Energy/heavy
     // weapons recolour + (for the laser) thicken the beam.
     if (end && world.spawnPlayerTracer) {
