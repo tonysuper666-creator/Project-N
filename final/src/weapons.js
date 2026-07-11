@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711006";
-import { audio } from "./audio.js?v=260711006";
+import { createViewmodel } from "./viewmodel.js?v=260711007";
+import { audio } from "./audio.js?v=260711007";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -54,9 +54,26 @@ const LASER_SNIPER_DEF = {
   vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
   scope: true, zoomFov: 32,
 };
+// Rocket launcher: fires an explosive PROJECTILE (not hitscan). Single shot,
+// high AOE, fast flat-shooting rocket (low drop). vm rifle for now.
+const ROCKET_DEF = {
+  id: "rocket", name: "火箭筒", mode: "semi", fireRate: 1.0,
+  mag: 1, reserve: 12, reload: 2.4, recoil: 0.14, kick: 0.05,
+  vm: "rifle", sound: "rocket", projectile: true,
+  projSpeed: 70, projGravity: 6, aoeRadius: 6.5, aoeDamage: 200, projColor: 0xffa040,
+};
+// Auto rocket launcher: rapid burst of slower, arcing rockets (more drop),
+// smaller each but they add up.
+const AUTO_ROCKET_DEF = {
+  id: "autorocket", name: "连发火箭筒", mode: "auto", fireRate: 0.35,
+  mag: 8, reserve: 48, reload: 3.2, recoil: 0.06, kick: 0.02,
+  vm: "rifle", sound: "rocket", projectile: true,
+  projSpeed: 34, projGravity: 16, aoeRadius: 4.5, aoeDamage: 85, projColor: 0xff7a3a,
+};
 const PRIMARY_DEFS = {
   smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF,
   sniper: SNIPER_DEF, laser_sniper: LASER_SNIPER_DEF,
+  rocket: ROCKET_DEF, auto_rocket: AUTO_ROCKET_DEF,
 };
 
 // Spread tuning (radians): standing-still baseline + per-shot bloom.
@@ -249,7 +266,15 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (obj.userData && obj.userData.type === "enemy") {
         const isHead = obj.userData.part === "head";
         const ctrl = obj.userData.enemy;
-        const killed = world.damageEnemy(ctrl, dmg * (obj.userData.mult || 1));
+        const applied = dmg * (obj.userData.mult || 1);
+        const killed = world.damageEnemy(ctrl, applied);
+        // accumulate beam damage and flush a floating number ~8x/sec so it
+        // "ticks" damage like the other guns instead of showing nothing
+        w.beamAccum = (w.beamAccum || 0) + applied;
+        if (Math.random() < dt * 8 && hooks.onDamageNumber) {
+          hooks.onDamageNumber(hit.point, w.beamAccum, isHead);
+          w.beamAccum = 0;
+        }
         if (killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
       } else if (obj.userData && obj.userData.type === "target") {
         world.damageTarget(obj, dmg);
@@ -327,16 +352,72 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     }
     const cfg = SPREAD[w.def.id] || SPREAD.rifle;
     const spread = currentSpread();
-    w.bloom = Math.min(1, w.bloom + cfg.perShot);
+    w.bloom = Math.min(1, w.bloom + (cfg.perShot || 0));
     muzzle.intensity = 4.5;
     vm.flash();
-    spawnCasing();
     audio.shot(w.def.sound || w.def.id);
+    if (w.def.projectile) { spawnRocket(w.def); return; } // explosive projectile, no hitscan
+    spawnCasing();
     const end = damageAt(w.def.range, w.def.damage, spread);
     // brief bullet tracer (worlds that support it draw the line). Energy/heavy
     // weapons recolour + (for the laser) thicken the beam.
     if (end && world.spawnPlayerTracer) {
       world.spawnPlayerTracer(camera, end, { color: w.def.tracer, beam: w.def.beam });
+    }
+  }
+
+  // --- explosive projectiles (rocket launchers) ----------------------------
+  const rockets = [];
+  const rocketGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.5, 8);
+  const rDir = new THREE.Vector3();
+  const rPrev = new THREE.Vector3();
+  function spawnRocket(def) {
+    const from = new THREE.Vector3();
+    camera.getWorldPosition(from);
+    camera.getWorldDirection(rDir);
+    const rightV = new THREE.Vector3().crossVectors(rDir, camera.up).normalize();
+    from.addScaledVector(rightV, 0.16).addScaledVector(camera.up, -0.12).addScaledVector(rDir, 0.7);
+    const mat = new THREE.MeshBasicMaterial({ color: def.projColor || 0xffa040 });
+    const mesh = new THREE.Mesh(rocketGeo, mat);
+    mesh.position.copy(from);
+    mesh.quaternion.setFromUnitVectors(UP, rDir.clone());
+    scene.add(mesh);
+    rockets.push({ mesh, vel: rDir.clone().multiplyScalar(def.projSpeed), def, life: 5 });
+  }
+  function detonate(r, point) {
+    scene.remove(r.mesh); r.mesh.material.dispose();
+    if (world.explodeAt) {
+      const results = world.explodeAt(point, r.def.aoeRadius, r.def.aoeDamage);
+      for (const res of results) {
+        if (hooks.onDamageNumber) hooks.onDamageNumber(res.point, res.dmg, false);
+        if (res.killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { heavy: res.heavy, elite: res.elite, boss: res.boss });
+      }
+    }
+  }
+  function updateRockets(dt) {
+    for (let i = rockets.length - 1; i >= 0; i -= 1) {
+      const r = rockets[i];
+      r.life -= dt;
+      rPrev.copy(r.mesh.position);
+      r.vel.y -= r.def.projGravity * dt;
+      r.mesh.position.addScaledVector(r.vel, dt);
+      r.mesh.quaternion.setFromUnitVectors(UP, r.vel.clone().normalize());
+      // impact test: raycast the travelled segment against world geometry/enemies
+      const seg = r.mesh.position.clone().sub(rPrev);
+      const dist = seg.length();
+      let hitPoint = null;
+      if (dist > 0.0001) {
+        ray.ray.origin.copy(rPrev);
+        ray.ray.direction.copy(seg).normalize();
+        ray.far = dist;
+        const hits = ray.intersectObjects(world.getHittables(), false);
+        if (hits.length) hitPoint = hits[0].point;
+      }
+      if (!hitPoint && r.mesh.position.y <= 0.2) { // ground
+        hitPoint = r.mesh.position.clone(); hitPoint.y = 0.1;
+      }
+      if (hitPoint) { detonate(r, hitPoint); rockets.splice(i, 1); continue; }
+      if (r.life <= 0) { detonate(r, r.mesh.position.clone()); rockets.splice(i, 1); }
     }
   }
 
@@ -534,6 +615,8 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
 
     vm.setPose({ posX, posY, posZ, rotX, rotY, rotZ });
     vm.tick(dt);
+
+    updateRockets(dt); // advance explosive projectiles + detonate on impact
 
     // fly + fade impact sparks
     for (let i = impacts.length - 1; i >= 0; i -= 1) {

@@ -160,6 +160,18 @@ export const audio = {
       o2.connect(g2).connect(master()); o2.start(t); o2.stop(t + 0.09);
       return;
     }
+    if (kind === "rocket") {
+      // launch WHOOSH: a rising-then-falling filtered noise swoosh + low thump
+      const src = c.createBufferSource(); src.buffer = noise(c, 0.4);
+      const f = c.createBiquadFilter(); f.type = "bandpass"; f.Q.value = 0.8;
+      f.frequency.setValueAtTime(300, t); f.frequency.exponentialRampToValueAtTime(1400, t + 0.15); f.frequency.exponentialRampToValueAtTime(500, t + 0.4);
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.22, t + 0.05); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.4);
+      src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.42);
+      const o = c.createOscillator(); o.type = "sine"; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(40, t + 0.2);
+      const og = c.createGain(); og.gain.setValueAtTime(0.35, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+      o.connect(og).connect(master()); o.start(t); o.stop(t + 0.23);
+      return;
+    }
     if (kind === "sniper") {
       // heavy rifle boom: sharp crack + deep bass tail + a bit of ring
       const src = c.createBufferSource(); src.buffer = noise(c, 0.18);
@@ -241,6 +253,20 @@ export const audio = {
       try { b.g.gain.cancelScheduledValues(now); b.g.gain.setValueAtTime(b.g.gain.value, now); b.g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06); } catch (_) {}
       setTimeout(() => { try { b.src.stop(); } catch (_) {} }, 100);
     }
+  },
+
+  // Explosion boom: deep body + noisy crack, for rocket detonations.
+  explosion() {
+    const c = ac(); if (!c) return;
+    const t = c.currentTime;
+    const src = c.createBufferSource(); src.buffer = noise(c, 0.5);
+    const f = c.createBiquadFilter(); f.type = "lowpass";
+    f.frequency.setValueAtTime(1800, t); f.frequency.exponentialRampToValueAtTime(120, t + 0.5);
+    const g = c.createGain(); g.gain.setValueAtTime(0.5, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.5);
+    src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.52);
+    const o = c.createOscillator(); o.type = "sine"; o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(32, t + 0.4);
+    const og = c.createGain(); og.gain.setValueAtTime(0.6, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.45);
+    o.connect(og).connect(master()); o.start(t); o.stop(t + 0.46);
   },
 
   reload() {

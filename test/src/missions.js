@@ -1,26 +1,32 @@
-import { account } from "./account.js?v=260711006";
+import { account } from "./account.js?v=260711007";
 
 // Mission definitions + per-account progress. Accepted missions live in the
 // account data as `missions[id] = { progress, done, claimed }`; unaccepted
 // missions simply have no entry.
 export const MISSIONS = [
   {
-    id: "m_outpost", name: "清剿前哨", type: "kill", goal: 12,
-    desc: "在 Area 1 消灭 12 名训练兵。",
-    reward: { coins: 600, items: [{ id: "scrap", qty: 4 }] },
-    rewardText: "₡ 600 + 合金废料 ×4",
+    id: "m_sweep", name: "街头肃清", type: "kill", goal: 20,
+    desc: "在伦敦行动中消灭 20 名敌人。",
+    reward: { coins: 700, items: [{ id: "scrap", qty: 5 }] },
+    rewardText: "₡ 700 + 合金废料 ×5",
   },
   {
-    id: "m_data", name: "回收数据", type: "collect", item: "data_chip", goal: 3,
-    desc: "拾取 3 枚数据芯片（Area 1 击杀掉落）。",
-    reward: { coins: 850, items: [{ id: "tac_gloves", qty: 1 }] },
-    rewardText: "₡ 850 + 战术手套",
+    id: "m_intel", name: "回收情报", type: "collect", item: "data_chip", goal: 5,
+    desc: "拾取 5 枚数据芯片（击杀掉落）。",
+    reward: { coins: 900, items: [{ id: "tac_gloves", qty: 1 }] },
+    rewardText: "₡ 900 + 战术手套",
   },
   {
-    id: "m_waves", name: "波次防御", type: "wave", goal: 5,
-    desc: "在 Area 1 累计清剿 5 个波次（每 3 波会出现重型单位）。",
-    reward: { coins: 1200, items: [{ id: "data_chip", qty: 2 }] },
-    rewardText: "₡ 1200 + 数据芯片 ×2",
+    id: "m_elite", name: "精英猎手", type: "elite", goal: 4,
+    desc: "击杀 4 名精英单位（蓝/紫色）。",
+    reward: { coins: 1100, items: [{ id: "alloy_core", qty: 1 }] },
+    rewardText: "₡ 1100 + 合金核心 ×1",
+  },
+  {
+    id: "m_boss", name: "斩首行动", type: "boss", goal: 1,
+    desc: "击败伦敦行动尽头的最终首领「钢铁首领」。",
+    reward: { coins: 2000, items: [{ id: "alloy_core", qty: 2 }, { id: "revive_coin", qty: 1 }] },
+    rewardText: "₡ 2000 + 合金核心 ×2 + 复活币 ×1",
   },
 ];
 

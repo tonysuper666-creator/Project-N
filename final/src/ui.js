@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711006";
-import { ITEM_DB } from "./inventory.js?v=260711006";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711006";
-import { audio } from "./audio.js?v=260711006";
+import { account } from "./account.js?v=260711007";
+import { ITEM_DB, LOOT_TABLE } from "./inventory.js?v=260711007";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711007";
+import { audio } from "./audio.js?v=260711007";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -24,9 +24,15 @@ const WEAPON_EXCHANGES = [
   { id: "sniper", tag: "史诗", tagCls: "diff-普通",
     cost: [{ id: "alloy_core", qty: 2 }, { id: "scrap", qty: 10 }],
     desc: "反器材栓动狙击枪，右键开镜，单发伤害巨高、爆头秒杀。" },
+  { id: "rocket", tag: "史诗", tagCls: "diff-普通",
+    cost: [{ id: "alloy_core", qty: 3 }, { id: "data_chip", qty: 3 }],
+    desc: "单发火箭筒，高爆炸 AOE、弹速快下坠少，命中范围内群体伤害。" },
   { id: "minigun", tag: "传说", tagCls: "diff-高危",
     cost: [{ id: "alloy_core", qty: 4 }, { id: "scrap", qty: 12 }, { id: "data_chip", qty: 3 }],
     desc: "重型转膛机枪，持续开火逐渐提高转速与射速，单弹夹 100 发，换弹缓慢。" },
+  { id: "auto_rocket", tag: "传说", tagCls: "diff-高危",
+    cost: [{ id: "alloy_core", qty: 6 }, { id: "data_chip", qty: 4 }, { id: "scrap", qty: 10 }],
+    desc: "连发火箭筒，射速快、弹速慢下坠大，靠数量覆盖战场。" },
   { id: "laser_sniper", tag: "传说", tagCls: "diff-高危",
     cost: [{ id: "alloy_core", qty: 5 }, { id: "data_chip", qty: 5 }],
     desc: "单发式激光狙击（联狙），右键开镜，瞬发笔直光束、超高单发伤害。" },
@@ -234,6 +240,19 @@ export function createUI(hooks = {}) {
     }
   }
 
+  // Build the "possible drops" icon strip for an area (sorted rarest-first).
+  function dropStrip() {
+    const order = { legend: 0, epic: 1, rare: 2, common: 3 };
+    const ids = [...new Set(LOOT_TABLE.map((e) => e.id))]
+      .filter((id) => ITEM_DB[id])
+      .sort((a, b) => (order[ITEM_DB[a].rarity] ?? 9) - (order[ITEM_DB[b].rarity] ?? 9));
+    const cells = ids.map((id) => {
+      const it = ITEM_DB[id];
+      return `<span class="drop-cell rar-${it.rarity}" title="${it.name}"><span class="drop-icon">${it.icon}</span></span>`;
+    }).join("");
+    return `<div class="drop-list"><span class="drop-label">可能掉落</span><div class="drop-cells">${cells}</div></div>`;
+  }
+
   function openDeploy() {
     open = true;
     const body = shell("部署门 · 选择副本", "选择作战区域并出击");
@@ -245,6 +264,7 @@ export function createUI(hooks = {}) {
       row.innerHTML = `<div class="rowText"><span class="rowName">${a.name}
         <em class="diff diff-${a.diff}">${a.diff}</em></span>
         <span class="rowDesc">${a.desc}</span>
+        ${dropStrip()}
         <span class="rowReward">进入要求：等级 ${a.reqLevel}（当前 Lv.${lvl}）</span></div>
         <button class="rowBtn deploy">${meets ? "部署" : `需要等级 ${a.reqLevel}`}</button>`;
       const btn = row.querySelector(".rowBtn");

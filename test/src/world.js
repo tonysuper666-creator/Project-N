@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711006";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711006";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711007";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711007";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711006";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711006";
+import { audio } from "./audio.js?v=260711007";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711007";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -419,7 +419,7 @@ export function createWorld(scene, hooks = {}) {
   // at the near end (+RL) and pushes FORWARD toward the boss at the far end
   // (-RL). SHW is the walkable street half-width; buildings line both sides.
   const AX = 260; // x offset of the area region from the base
-  const SHW = 11; // street half-width (walkable X)
+  const SHW = 12; // street half-width (walkable X)
   const RL = 128; // route half-length (Z)
   const areaSpawn = new THREE.Vector3(AX, 0, RL - 12);
   const baseSpawn = new THREE.Vector3(0, 0, 9);
@@ -660,14 +660,20 @@ export function createWorld(scene, hooks = {}) {
     }
     const depth = 8;
     const innerX = SHW + 7; // building inner face = outer edge of the pavement
+    const PLAZA = [-26, 6]; // right side opens into a plaza here (Eiffel Tower)
+    const PARK = [30, 58];  // left side opens into a park here
     for (const s of [-1, 1]) {
       let z = -L + 20;
       while (z < L - 8) {
         const w = 10 + Math.random() * 4;
-        if (Math.random() < 0.12) { z += w + 5; continue; } // alley gap
+        const mid = z + w / 2;
+        // leave the plaza (right) and park (left) frontages open, plus random alleys
+        const inPlaza = s === 1 && mid > PLAZA[0] && mid < PLAZA[1];
+        const inPark = s === -1 && mid > PARK[0] && mid < PARK[1];
+        if (inPlaza || inPark || Math.random() < 0.12) { z += w + 5; continue; }
         const h = 11 + Math.random() * 15;
         const mat = brickMats[(Math.random() * brickMats.length) | 0];
-        terrace(AX + s * (innerX + depth / 2), z + w / 2, w, h, depth, mat, -s);
+        terrace(AX + s * (innerX + depth / 2), mid, w, h, depth, mat, -s);
         z += w + 1.2;
       }
     }
@@ -696,6 +702,40 @@ export function createWorld(scene, hooks = {}) {
         const t = new THREE.Mesh(new THREE.BoxGeometry(5, 28, 6), stoneMat); t.position.set(AX + ix, 14, z - 1); areaGroup.add(t);
         const sp = new THREE.Mesh(new THREE.ConeGeometry(3.6, 6, 4), stoneMat); sp.position.set(AX + ix, 31, z - 1); sp.rotation.y = Math.PI / 4; areaGroup.add(sp);
       }
+    })();
+
+    // --- EIFFEL TOWER: lattice iron tower looming over the plaza (right side) --
+    (function eiffelTower() {
+      const bx = AX + 34, bz = -10, H = 78; // base position + height
+      const iron = new THREE.MeshStandardMaterial({ color: 0x6b5b45, roughness: 0.6, metalness: 0.55 });
+      // four curved legs approximated by stacked, inward-leaning box segments
+      const legSpread = [11, 7, 4, 2.2, 1.1]; // half-spread at each level
+      const legY = [0, 20, 38, 55, H];
+      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+        for (let k = 0; k < legY.length - 1; k += 1) {
+          const y0 = legY[k], y1 = legY[k + 1];
+          const r0 = legSpread[k], r1 = legSpread[k + 1];
+          const x0 = bx + sx * r0, z0 = bz + sz * r0, x1 = bx + sx * r1, z1 = bz + sz * r1;
+          const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+          const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+          const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, len, 0.9), iron);
+          beam.position.copy(mid);
+          beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize());
+          beam.castShadow = true; areaGroup.add(beam);
+        }
+      }
+      // platform rings + the great arch
+      for (const [py, pr] of [[20, 8], [38, 5], [55, 3]]) {
+        const ring = new THREE.Mesh(new THREE.BoxGeometry(pr * 2 + 1, 1.2, pr * 2 + 1), iron);
+        ring.position.set(bx, py, bz); areaGroup.add(ring);
+      }
+      const arch = new THREE.Mesh(new THREE.TorusGeometry(7, 0.6, 8, 20, Math.PI), iron);
+      arch.position.set(bx, 12, bz); arch.rotation.x = Math.PI; areaGroup.add(arch);
+      // upper taper + antenna
+      const upper = new THREE.Mesh(new THREE.ConeGeometry(2.2, 16, 6), iron); upper.position.set(bx, H - 4, bz); upper.castShadow = true; areaGroup.add(upper);
+      const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 8, 6), iron); ant.position.set(bx, H + 5, bz); areaGroup.add(ant);
+      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe08a, emissive: 0xffb020, emissiveIntensity: 1.2 }));
+      beacon.position.set(bx, H + 9.2, bz); areaGroup.add(beacon);
     })();
 
     // --- street props -------------------------------------------------------
@@ -764,21 +804,101 @@ export function createWorld(scene, hooks = {}) {
       colliders.push(new THREE.Box3().setFromObject(bar));
     }
 
-    // --- ammo supply points along the route --------------------------------
+    // --- extra vehicles: saloon cars + vans, some angled in the street to
+    // form chicanes you weave around (breaks the straight-line run) ----------
+    const carCols = [0x274a7a, 0x6a1e1e, 0x2c2f33, 0x1f5a3a, 0xb8b2a4];
+    function sedan(x, z, ry, col) {
+      const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry;
+      const paint = new THREE.MeshStandardMaterial({ color: col, roughness: 0.35, metalness: 0.55 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.0, 4.4), paint); body.position.y = 0.7; body.castShadow = true; g.add(body); solids.push(body);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.86, 2.2), paint); cabin.position.set(0, 1.5, -0.1); g.add(cabin); solids.push(cabin);
+      const win = new THREE.Mesh(new THREE.BoxGeometry(1.9, 0.7, 2.0), busWin); win.position.set(0, 1.55, -0.1); g.add(win);
+      for (const wz of [-1.4, 1.4]) for (const wx of [-0.98, 0.98]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 12), tyre); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.42, wz); g.add(wh); }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    function van(x, z, ry, col) {
+      const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry;
+      const paint = new THREE.MeshStandardMaterial({ color: col, roughness: 0.4, metalness: 0.4 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.2, 2.0, 5.0), paint); body.position.y = 1.2; body.castShadow = true; g.add(body); solids.push(body);
+      const win = new THREE.Mesh(new THREE.BoxGeometry(2.24, 0.7, 1.6), busWin); win.position.set(0, 1.9, 1.6); g.add(win);
+      for (const wz of [-1.7, 1.7]) for (const wx of [-1.08, 1.08]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.34, 12), tyre); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.5, wz); g.add(wh); }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    let ci = 0;
+    for (const [ex, z, ry] of [[7, 100, 0.5], [-7, 44, -0.5], [6, -4, 1.4], [-6, -34, 0.7], [7, -66, -1.2], [-7, -100, 0.3]]) sedan(AX + ex, z, ry, carCols[ci++ % carCols.length]);
+    for (const [ex, z, ry] of [[-8, 68, 1.6], [8, 12, -1.6], [-8, -54, 1.2]]) van(AX + ex, z, ry, carCols[ci++ % carCols.length]);
+
+    // --- PLAZA (right side, z ~ -10): fountain island you round + market ------
+    (function plaza() {
+      const px = AX + 8, pz = -10;
+      const basin = new THREE.Mesh(new THREE.CylinderGeometry(2.6, 2.8, 0.8, 20), coverMat);
+      basin.position.set(px, 0.4, pz); basin.castShadow = true; areaGroup.add(basin); solids.push(basin);
+      colliders.push(new THREE.Box3().setFromObject(basin));
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(2.3, 2.3, 0.2, 20), new THREE.MeshStandardMaterial({ color: 0x2f6f9c, transparent: true, opacity: 0.8, roughness: 0.2, metalness: 0.1 }));
+      water.position.set(px, 0.75, pz); areaGroup.add(water);
+      const col2 = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.5, 2.4, 12), coverMat); col2.position.set(px, 1.6, pz); areaGroup.add(col2);
+      const top = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 10), coverMat); top.position.set(px, 3.1, pz); areaGroup.add(top);
+      // market stalls (striped awnings) forming a slalom nearby
+      const awnCols = [0xcf3b3b, 0x2f7fcf, 0x2fae5f];
+      for (const [sx, sz, aw] of [[-5, 8, 0], [5, -26, 1], [-4, -46, 2]]) {
+        const st = new THREE.Group(); st.position.set(AX + sx, 0, sz);
+        const table = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.0, 1.4), new THREE.MeshStandardMaterial({ color: 0x6a4a2c, roughness: 0.8 })); table.position.y = 0.5; st.add(table); solids.push(table);
+        const awn = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.2, 1.8), new THREE.MeshStandardMaterial({ color: awnCols[aw], roughness: 0.6 })); awn.position.set(0, 2.1, 0); awn.rotation.x = -0.2; st.add(awn);
+        for (const cx2 of [-1.2, 1.2]) { const pst = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 2.1, 6), lampPole); pst.position.set(cx2, 1.05, -0.7); st.add(pst); }
+        areaGroup.add(st); colliders.push(new THREE.Box3().setFromObject(st));
+      }
+    })();
+
+    // --- PARK (left side, z 30..58): grass, trees, fence, benches ------------
+    (function park() {
+      const grassMat = new THREE.MeshStandardMaterial({ color: 0x3f6b34, roughness: 1 });
+      const gx = AX - (SHW + 8);
+      const lawn = new THREE.Mesh(new THREE.BoxGeometry(16, 0.22, 30), grassMat); lawn.position.set(gx, 0.11, 44); lawn.receiveShadow = true; areaGroup.add(lawn); solids.push(lawn);
+      const trunkMat = new THREE.MeshStandardMaterial({ color: 0x4a3524, roughness: 0.9 });
+      const leafMat = new THREE.MeshStandardMaterial({ color: 0x35702f, roughness: 0.85 });
+      for (const [tx, tz] of [[-4, 34], [3, 40], [-2, 48], [5, 54], [-5, 56], [1, 30]]) {
+        const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.32, 2.6, 8), trunkMat); tr.position.set(gx + tx, 1.3, tz); tr.castShadow = true; areaGroup.add(tr);
+        const crown = new THREE.Mesh(new THREE.IcosahedronGeometry(1.8, 1), leafMat); crown.position.set(gx + tx, 3.4, tz); crown.castShadow = true; areaGroup.add(crown);
+      }
+      // low iron fence along the park frontage
+      for (let fz = 30; fz <= 58; fz += 1.4) {
+        const post = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.0, 0.1), lampPole); post.position.set(AX - (SHW + 0.6), 0.6, fz); areaGroup.add(post);
+      }
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.1, 28), lampPole); rail.position.set(AX - (SHW + 0.6), 1.0, 44); areaGroup.add(rail);
+      // a couple of benches just inside the street
+      for (const bz of [36, 50]) {
+        const seat = new THREE.Mesh(new THREE.BoxGeometry(2.0, 0.15, 0.6), trunkMat); seat.position.set(AX - (SHW - 1.4), 0.55, bz); areaGroup.add(seat); solids.push(seat);
+      }
+    })();
+
+    // --- cross-street vistas: perpendicular roads receding into the fog ------
+    for (const [s, z] of [[-1, 20], [1, 78], [-1, -68]]) {
+      const road2 = new THREE.Mesh(new THREE.PlaneGeometry(40, 7), roadMat); // 40 along X (into the side street)
+      road2.rotation.x = -Math.PI / 2;
+      road2.position.set(AX + s * (SHW + 22), 0.02, z); areaGroup.add(road2);
+      // distant buildings framing the side street
+      for (const dz of [-7, 7]) {
+        const fb = new THREE.Mesh(new THREE.BoxGeometry(10, 16, 8), brickMats[(Math.random() * brickMats.length) | 0]);
+        fb.position.set(AX + s * (SHW + 32), 8, z + dz); fb.castShadow = true; areaGroup.add(fb);
+      }
+    }
+
+    // --- ammo supply points along the route (kept inside the walkable width
+    // so you can actually reach them; radius is generous) -------------------
     function ammoPoint(z, s) {
-      const x = AX + s * (SHW + 1.6);
+      const x = AX + s * (SHW - 1.6);
       const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.05, 1.05), new THREE.MeshStandardMaterial({ color: 0x3f4a2c, roughness: 0.7, metalness: 0.2 }));
       crate.position.set(x, 0.62, z); crate.castShadow = true; areaGroup.add(crate); solids.push(crate);
       const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.18, 1.09), new THREE.MeshStandardMaterial({ color: 0xffcf3a, emissive: 0xffb000, emissiveIntensity: 0.55 }));
       stripe.position.set(x, 0.95, z); areaGroup.add(stripe);
       const lbl = makeLabel("弹药补给 [E]", "#ffd23a"); lbl.position.set(x, 1.8, z); areaGroup.add(lbl);
-      interactables.push({ name: "弹药补给", action: "ammo", pos: new THREE.Vector3(x, 0, z), radius: 2.4 });
+      interactables.push({ name: "弹药补给", action: "ammo", pos: new THREE.Vector3(x, 0, z), radius: 3.0 });
     }
     ammoPoint(84, 1); ammoPoint(28, -1); ammoPoint(-26, 1); ammoPoint(-78, -1);
 
-    // a couple of loot supply crates along the way
-    makeSupplyCrate(-(SHW + 1.6), 54, "lc1");
-    makeSupplyCrate(SHW + 1.6, -40, "lc2");
+    // a couple of loot supply crates along the way (also within reach)
+    makeSupplyCrate(-(SHW - 1.6), 54, "lc1");
+    makeSupplyCrate(SHW - 1.6, -40, "lc2");
 
     // stage gates spanning the street (open until each stage seals them)
     for (const z of GATE_Z) makeGate(z);
@@ -988,6 +1108,39 @@ export function createWorld(scene, hooks = {}) {
       });
       scene.add(m);
     }
+  }
+
+  // --- explosions: AOE damage + expanding shockwave visual (rockets) --------
+  const explosions = [];
+  const explGeo = new THREE.SphereGeometry(1, 16, 12);
+  function spawnExplosion(point, radius) {
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffa040, transparent: true, opacity: 0.9 });
+    const m = new THREE.Mesh(explGeo, mat);
+    m.position.copy(point); m.scale.setScalar(0.4);
+    scene.add(m);
+    explosions.push({ mesh: m, life: 0.4, max: 0.4, radius });
+    const light = new THREE.PointLight(0xffb060, 6, radius * 3, 2);
+    light.position.copy(point); scene.add(light);
+    explosions.push({ light, life: 0.25, max: 0.25 });
+    spawnDeathBurst({ x: point.x, y: point.y - 1.2, z: point.z }, true);
+    audio.explosion();
+  }
+  // Damage every enemy within `radius` of `point` (linear falloff). Returns a
+  // list of { killed, dmg, heavy, elite, boss, point } for the caller to score.
+  function explodeAt(point, radius, maxDamage) {
+    const results = [];
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const cx = e.group.position.x, cy = e.group.position.y + 1.0, cz = e.group.position.z;
+      const d = Math.hypot(point.x - cx, point.y - cy, point.z - cz);
+      if (d < radius) {
+        const dmg = maxDamage * Math.max(0.35, 1 - d / radius);
+        const killed = damageEnemy(e, dmg);
+        results.push({ killed, dmg, heavy: !!e.heavy, elite: !!e.elite, boss: !!e.boss, point: new THREE.Vector3(cx, cy, cz) });
+      }
+    }
+    spawnExplosion(point, radius);
+    return results;
   }
 
   // --- enemy fire: brief tracer line + distant crack, chance-to-hit ------
@@ -1320,6 +1473,19 @@ export function createWorld(scene, hooks = {}) {
         bursts.splice(i, 1);
       }
     }
+    // explosions: expand the shockwave sphere + fade the flash light
+    for (let i = explosions.length - 1; i >= 0; i -= 1) {
+      const x = explosions[i];
+      x.life -= dt;
+      const k = Math.max(0, x.life / x.max);
+      if (x.mesh) { x.mesh.scale.setScalar(x.radius * (1 - k) + 0.4); x.mesh.material.opacity = k * 0.85; }
+      if (x.light) x.light.intensity = k * 6;
+      if (x.life <= 0) {
+        if (x.mesh) { scene.remove(x.mesh); x.mesh.material.dispose(); }
+        if (x.light) scene.remove(x.light);
+        explosions.splice(i, 1);
+      }
+    }
     // fade out enemy tracers
     for (let i = tracers.length - 1; i >= 0; i -= 1) {
       const t = tracers[i];
@@ -1388,7 +1554,7 @@ export function createWorld(scene, hooks = {}) {
 
   return {
     ROOM, colliders, solids, targets, interactables, state, enemies, loot, supplyCrates,
-    damageTarget, damageEnemy, getHittables, update, spawnPlayerTracer, openSupplyCrate,
+    damageTarget, damageEnemy, explodeAt, getHittables, update, spawnPlayerTracer, openSupplyCrate,
     enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
   };
 }

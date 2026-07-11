@@ -1,4 +1,4 @@
-import { account } from "./account.js?v=260711006";
+import { account } from "./account.js?v=260711007";
 
 // Item database. Equip-able types: primary / secondary / melee / armor / gear.
 // "material" items are non-equippable (stackable resources / consumables).
@@ -9,7 +9,9 @@ export const ITEM_DB = {
   laser_rifle: { name: "激光步枪", type: "primary", rarity: "epic", icon: "🔫", stats: { 伤害: 13, 射速: 720, 射程: 160 }, desc: "定向能量武器，弹道笔直、后坐极低、射程远。装备为主武器后即可使用。" },
   minigun: { name: "加特林", type: "primary", rarity: "legend", icon: "🔫", stats: { 伤害: 8, 射速: 1200, 弹匣: 120 }, desc: "重型转膛机枪，超高射速与弹匣，换弹缓慢。装备为主武器后即可使用。" },
   sniper: { name: "反器材狙击枪", type: "primary", rarity: "epic", icon: "🎯", stats: { 伤害: 150, 弹匣: 5, 射程: 320 }, desc: "栓动反器材步枪，右键开镜，单发伤害巨高，爆头几乎秒杀。装备为主武器后即可使用。" },
-  laser_sniper: { name: "激光狙击枪", type: "primary", rarity: "legend", icon: "🎯", stats: { 伤害: 130, 弹匣: 6, 射程: 340 }, desc: "单发式激光狙击（联狙），右键开镜，瞬发笔直光束、超高单发伤害。装备为主武器后即可使用。" },
+  laser_sniper: { name: "激光狙击枪", type: "primary", rarity: "legend", icon: "🎯", stats: { 伤害: 95, 弹匣: 12, 射程: 340 }, desc: "单发式激光狙击（联狙），右键开镜，按住 4 连发瞬发光束。装备为主武器后即可使用。" },
+  rocket: { name: "火箭筒", type: "primary", rarity: "epic", icon: "🚀", stats: { 爆炸伤害: 200, 弹匣: 1, 范围: "6.5m" }, desc: "单发爆炸武器，高 AOE 伤害、弹速快下坠少。命中爆炸范围内造成群体伤害。装备为主武器后即可使用。" },
+  auto_rocket: { name: "连发火箭筒", type: "primary", rarity: "legend", icon: "🚀", stats: { 爆炸伤害: 85, 弹匣: 8, 范围: "4.5m" }, desc: "连发爆炸武器，射速快、弹速慢下坠大，靠数量覆盖。装备为主武器后即可使用。" },
   pistol_std: { name: "制式手枪", type: "secondary", rarity: "common", icon: "🔫", stats: { 伤害: 26, 射速: 300 }, desc: "可靠的副武器。" },
   combat_knife: { name: "作战匕首", type: "melee", rarity: "common", icon: "🗡️", stats: { 伤害: 150 }, desc: "近身致命。" },
   nano_armor: { name: "纳米护甲", type: "armor", rarity: "epic", icon: "🛡️", stats: { 减伤: "30%" }, desc: "装备后受到的伤害降低 30%。" },
@@ -25,7 +27,7 @@ export const ITEM_DB = {
 
 // Drop table for Area enemies: mostly materials, small chance of a finished
 // weapon. Returns { id, qty }.
-const LOOT_TABLE = [
+export const LOOT_TABLE = [
   { id: "scrap", min: 1, max: 4, w: 42 },
   { id: "data_chip", min: 1, max: 2, w: 20 },
   { id: "med_stim", min: 1, max: 1, w: 12 },
@@ -35,9 +37,11 @@ const LOOT_TABLE = [
   { id: "smg_proto", min: 1, max: 1, w: 4 }, // weapon: SMG
   { id: "laser_rifle", min: 1, max: 1, w: 3 }, // weapon: laser rifle
   { id: "sniper", min: 1, max: 1, w: 3 }, // weapon: sniper rifle
+  { id: "rocket", min: 1, max: 1, w: 2 }, // weapon: rocket launcher
   { id: "combat_pack", min: 1, max: 1, w: 2 }, // gear: tactical pack
   { id: "ak47_gold", min: 1, max: 1, w: 2 }, // rare: gold AK directly
   { id: "laser_sniper", min: 1, max: 1, w: 1 }, // legendary: laser sniper
+  { id: "auto_rocket", min: 1, max: 1, w: 1 }, // legendary: auto rocket launcher
   { id: "minigun", min: 1, max: 1, w: 1 }, // legendary: gatling
 ];
 export function rollLoot() {

@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711006";
-import { createPlayer } from "./player.js?v=260711006";
-import { createWeapons } from "./weapons.js?v=260711006";
-import { createUI } from "./ui.js?v=260711006";
-import "./shell.js?v=260711006"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711006";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711006";
-import { audio } from "./audio.js?v=260711006";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711006";
-import { xpNeed } from "./account.js?v=260711006";
-import { createProfile } from "./profile.js?v=260711006";
+import { createWorld } from "./world.js?v=260711007";
+import { createPlayer } from "./player.js?v=260711007";
+import { createWeapons } from "./weapons.js?v=260711007";
+import { createUI } from "./ui.js?v=260711007";
+import "./shell.js?v=260711007"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711007";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711007";
+import { audio } from "./audio.js?v=260711007";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711007";
+import { xpNeed } from "./account.js?v=260711007";
+import { createProfile } from "./profile.js?v=260711007";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711006";
+const BUILD_VERSION = "260711007";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -116,6 +116,8 @@ const world = createWorld(scene, {
     const ups = account.award(bonus, 300);
     runStats.coins += bonus; runStats.xp += 300;
     if (ups > 0) celebrateLevelUp();
+    for (const m of recordProgress("boss")) ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
+    refreshMissionHUD();
     showStageBanner("行动完成 · 首领已击败", "回到撤离点 [E] 结算收获");
     ui.toast(`首领已击败 · 奖励 ◈${bonus}！返回撤离点结算`);
   },
@@ -266,7 +268,9 @@ function onEnemyKill(extra = {}) {
   const label = extra.boss ? "首领" : extra.heavy ? "重型单位" : extra.elite ? "精英" : "敌兵";
   pushKillFeed(`${extra.headshot ? "☠ 爆头 " : ""}击杀 ${label} +◈${bounty}`);
   if (ups > 0) celebrateLevelUp();
-  for (const m of recordProgress("kill")) {
+  const done = recordProgress("kill");
+  if (extra.elite || extra.boss) done.push(...recordProgress("elite")); // elites count for the hunter mission
+  for (const m of done) {
     ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
   }
   refreshMissionHUD();
