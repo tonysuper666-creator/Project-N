@@ -587,13 +587,13 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     if (w.def.mode === "melee") {
       w.swing = Math.max(0, w.swing - dt * 2.4);
     } else {
-      w.recoil = Math.max(0, w.recoil - dt * 0.9);
-      w.bloom = Math.max(0, w.bloom - dt * 2.2);
+      w.recoil = Math.max(0, w.recoil - dt * 1.3); // faster view-model recovery
+      w.bloom = Math.max(0, w.bloom - dt * 2.6); // quicker accuracy recovery
       if (time - w.lastShot > 0.3) w.burst = 0;
-      // after the burst the camera smoothly recovers ~55% of the kick
+      // after the burst the camera smoothly recovers the kick with faster damping
       if ((!w.firing || w.reloading) && w.kickAccum > 0) {
-        const rec = Math.min(w.kickAccum, dt * 0.4);
-        player.addPitch(-rec * 0.55);
+        const rec = Math.min(w.kickAccum, dt * 0.65); // faster pitch recovery
+        player.addPitch(-rec * 0.6);
         w.kickAccum -= rec;
       }
     }
@@ -654,8 +654,9 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
         rotX += 0.35 * arc;
       }
     } else {
-      posZ += w.recoil * 1.25; // kick straight back toward the eye (front-back)
-      rotX += w.recoil * 0.2; // only a hint of muzzle rise
+      posZ += w.recoil * 1.6; // stronger kickback toward the eye
+      rotX += w.recoil * 0.35; // pronounced muzzle rise
+      rotX += w.kickAccum * 0.08; // accumulated pitch feedback
     }
 
     // scoped aiming: drop the view-model out of the way behind the scope overlay

@@ -166,25 +166,64 @@ export function buildRifle() {
   const g = new THREE.Group();
   const mMetal = metal();
   const mPoly = polymer();
+  const mSteel = steel();
+  const mAccent = accent();
 
-  g.add(box(0.12, 0.14, 0.46, mMetal, 0, 0, -0.08)); // receiver
-  g.add(cyl(0.028, 0.5, mMetal, 0, 0.03, -0.5)); // barrel
-  g.add(cyl(0.05, 0.26, mPoly, 0, 0.03, -0.34)); // handguard
-  const grip = box(0.08, 0.2, 0.1, mPoly, 0, -0.17, 0.06);
-  grip.rotation.x = 0.32;
+  // --- Receiver (main body) ---
+  g.add(box(0.13, 0.155, 0.5, mMetal, 0, 0, -0.08)); // primary receiver (larger)
+  g.add(box(0.11, 0.04, 0.48, mSteel, 0, 0.075, -0.08)); // top rail / mounting surface
+
+  // --- Barrel assembly ---
+  g.add(cyl(0.032, 0.56, mMetal, 0, 0.035, -0.54)); // barrel (thicker, longer)
+  g.add(cyl(0.038, 0.08, mSteel, 0, 0.035, -0.82)); // muzzle brake
+  g.add(cyl(0.055, 0.28, mPoly, 0, 0.035, -0.36)); // handguard / rail system
+
+  // --- Handguard details ---
+  for (let i = 0; i < 3; i++) {
+    g.add(box(0.065, 0.008, 0.06, mMetal, 0, 0.06, -0.24 + i * 0.08)); // rail slots
+  }
+
+  // --- Gas tube above barrel ---
+  g.add(cyl(0.016, 0.42, mMetal, 0, 0.09, -0.42));
+  g.add(cyl(0.018, 0.04, mMetal, 0, 0.09, -0.78)); // gas block
+
+  // --- Grip (ergonomic angle) ---
+  const grip = box(0.082, 0.22, 0.11, mPoly, 0, -0.18, 0.06);
+  grip.rotation.x = 0.38;
   g.add(grip);
-  const mag = box(0.07, 0.26, 0.12, mMetal, 0, -0.22, -0.14);
-  mag.rotation.x = -0.18;
+
+  // --- Magazine (curved, larger) ---
+  const mag = box(0.075, 0.29, 0.14, mMetal, 0, -0.24, -0.14);
+  mag.rotation.x = -0.22;
+  mag.rotation.z = 0.05;
   g.add(mag);
-  g.add(box(0.08, 0.13, 0.24, mPoly, 0, -0.02, 0.26)); // stock
-  g.add(box(0.12, 0.02, 0.34, mMetal, 0, 0.11, -0.12)); // rail
-  g.add(box(0.02, 0.06, 0.02, accent(), 0, 0.16, -0.02));
-  g.add(box(0.02, 0.05, 0.02, accent(), 0, 0.15, -0.26));
+  g.add(box(0.069, 0.26, 0.08, new THREE.MeshStandardMaterial({ color: 0x1a1f28, roughness: 0.8 }), 0.001, -0.24, -0.12)); // mag shadow/texture
 
-  g.add(arm(V(0.0, -0.13, 0.07), [-0.35, -0.1, 0], SH_R, 1)); // right hand on grip
-  g.add(arm(V(0.0, 0.05, -0.34), [-1.2, 0.1, 0], SH_L, -1)); // left hand over handguard
+  // --- Stock ---
+  g.add(box(0.09, 0.14, 0.28, mPoly, 0, -0.01, 0.28)); // stock body
+  g.add(box(0.11, 0.038, 0.28, mAccent, 0, 0.09, 0.28)); // top cheek rest (accent glow)
 
-  const muzzle = V(0, 0.03, -0.76);
+  // --- Charging handle ---
+  g.add(cyl(0.012, 0.04, mMetal, 0.06, 0.04, -0.1));
+  g.add(box(0.024, 0.016, 0.016, mMetal, 0.065, 0.04, -0.1)); // charging handle knob
+
+  // --- Sight/optic area ---
+  g.add(box(0.032, 0.048, 0.06, mSteel, 0, 0.135, -0.06)); // front sight post
+  g.add(box(0.038, 0.038, 0.08, mMetal, 0, 0.138, -0.26)); // rear sight / optic mount
+
+  // --- Safety selector ---
+  const selector = box(0.024, 0.06, 0.024, mAccent, -0.068, -0.04, -0.06);
+  selector.rotation.z = 0.3;
+  g.add(selector);
+
+  // --- Trigger guard ---
+  g.add(box(0.078, 0.042, 0.065, mMetal, 0, -0.11, 0.02));
+
+  // --- Arms (properly positioned for ALT grip) ---
+  g.add(arm(V(0.0, -0.13, 0.08), [-0.35, -0.08, 0], SH_R, 1)); // right hand on grip
+  g.add(arm(V(0.0, 0.06, -0.34), [-1.15, 0.12, 0.08], SH_L, -1)); // left hand further forward
+
+  const muzzle = V(0, 0.035, -0.86);
   const flash = makeFlash(muzzle);
   g.add(flash);
   return { group: g, muzzle, flash };
@@ -194,20 +233,54 @@ export function buildPistol() {
   const g = new THREE.Group();
   const mMetal = metal();
   const mPoly = polymer();
+  const mSteel = steel();
+  const mAccent = accent();
 
-  g.add(box(0.09, 0.1, 0.34, mMetal, 0, 0.02, -0.12)); // slide
-  g.add(cyl(0.02, 0.12, mMetal, 0, 0.02, -0.3)); // barrel
-  g.add(box(0.08, 0.07, 0.3, mPoly, 0, -0.05, -0.08)); // frame
-  const grip = box(0.08, 0.2, 0.12, mPoly, 0, -0.17, 0.04);
-  grip.rotation.x = 0.28;
+  // --- Slide (top, metallic) ---
+  g.add(box(0.098, 0.108, 0.38, mMetal, 0, 0.024, -0.13)); // main slide body
+  g.add(box(0.085, 0.035, 0.36, mSteel, 0, 0.065, -0.13)); // top surface (polished steel)
+
+  // --- Slide serrations (rear) ---
+  for (let i = 0; i < 2; i++) {
+    g.add(box(0.088, 0.012, 0.015, new THREE.MeshStandardMaterial({ color: 0x3a3f46, roughness: 0.5 }), 0, 0.055, -0.05 + i * 0.025));
+  }
+
+  // --- Barrel visible under slide ---
+  g.add(cyl(0.024, 0.14, mMetal, 0, 0.02, -0.32)); // barrel
+  g.add(cyl(0.029, 0.034, mSteel, 0, 0.02, -0.38)); // muzzle
+
+  // --- Frame (polymer body) ---
+  g.add(box(0.088, 0.078, 0.34, mPoly, 0, -0.05, -0.1)); // frame grip section
+  g.add(box(0.076, 0.048, 0.22, new THREE.MeshStandardMaterial({ color: 0x252a32, roughness: 0.8 }), 0, -0.045, -0.02)); // frame front
+
+  // --- Trigger guard (enlarged) ---
+  g.add(box(0.082, 0.05, 0.08, mMetal, 0, -0.075, 0.02));
+
+  // --- Grip texture ---
+  const grip = box(0.088, 0.22, 0.13, mPoly, 0, -0.18, 0.04);
+  grip.rotation.x = 0.32;
   g.add(grip);
-  g.add(box(0.02, 0.035, 0.02, accent(), 0, 0.08, -0.26));
-  g.add(box(0.05, 0.03, 0.02, accent(), 0, 0.08, 0.0));
+  g.add(box(0.084, 0.2, 0.048, new THREE.MeshStandardMaterial({ color: 0x1f2530, roughness: 0.9 }), -0.008, -0.18, 0.06)); // grip texture shadow
 
-  g.add(arm(V(0.01, -0.15, 0.05), [-0.4, -0.1, 0], SH_R, 1)); // right hand on grip
-  g.add(arm(V(-0.06, -0.13, 0.0), [-0.5, 0.35, 0], SH_L, -1)); // left support hand
+  // --- Hammer / Firing pin area ---
+  g.add(box(0.06, 0.045, 0.045, mMetal, 0, 0.065, 0.14)); // hammer
+  g.add(cyl(0.008, 0.024, mSteel, 0, 0.06, -0.02)); // firing pin
 
-  const muzzle = V(0, 0.02, -0.38);
+  // --- Safety selector ---
+  g.add(box(0.018, 0.048, 0.024, mAccent, -0.052, 0.008, -0.02)); // left side safety
+
+  // --- Night sights ---
+  g.add(box(0.015, 0.035, 0.015, mAccent, 0, 0.095, -0.28)); // rear sight (accent)
+  g.add(box(0.012, 0.032, 0.012, mAccent, 0, 0.095, 0.1)); // front sight (accent)
+
+  // --- Magazine well indicator ---
+  g.add(box(0.078, 0.012, 0.015, new THREE.MeshStandardMaterial({ color: 0xff6b35, roughness: 0.6 }), 0, -0.115, 0.0)); // orange indicator
+
+  // --- Arms ---
+  g.add(arm(V(0.01, -0.15, 0.06), [-0.42, -0.1, 0], SH_R, 1)); // right hand on grip
+  g.add(arm(V(-0.062, -0.135, 0.02), [-0.48, 0.32, -0.1], SH_L, -1)); // left support hand
+
+  const muzzle = V(0, 0.02, -0.42);
   const flash = makeFlash(muzzle);
   g.add(flash);
   return { group: g, muzzle, flash };
