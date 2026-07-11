@@ -29,16 +29,18 @@ function defaultData() {
     coins: 500,
     avatar: null, // data-URL of an uploaded avatar; null = placeholder (future: upload UI)
     skins: { ak: "black" }, // in-hand AK skin; "gold" is earned from the merchant
-    equipment: { primary: "ak47_black", secondary: "pistol_std", melee: "combat_knife", armor: null, gear: null },
+    equipment: { primary: "ak47_black", secondary: "pistol_std", melee: "combat_knife", armor: "combat_vest", gear: null },
+    enhance: {}, // weaponId -> { mag, barrel, muzzle, stock, core } part levels
     inventory: [
       { id: "ak47_black", qty: 1 },
       { id: "pistol_std", qty: 1 },
       { id: "combat_knife", qty: 1 },
-      { id: "nano_armor", qty: 1 },
+      { id: "combat_vest", qty: 1 },
       { id: "tac_gloves", qty: 1 },
       { id: "med_stim", qty: 3 },
       { id: "scrap", qty: 6 },
       { id: "data_chip", qty: 1 },
+      { id: "upgrade_module", qty: 3 },
     ],
     stats: { kills: 0, deaths: 0, runs: 0 },
   };
@@ -81,6 +83,7 @@ export const account = {
     if (!d.skins) d.skins = { ak: "black" };
     if (!d.stats) d.stats = { kills: 0, deaths: 0, runs: 0 };
     if (d.avatar === undefined) d.avatar = null;
+    if (!d.enhance) d.enhance = {};
     return d;
   },
   // Set / clear the current account's avatar (data-URL). Future: upload UI.

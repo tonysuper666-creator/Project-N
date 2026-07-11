@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711009";
-import { audio } from "./audio.js?v=260711009";
+import { createViewmodel } from "./viewmodel.js?v=260711010";
+import { audio } from "./audio.js?v=260711010";
+import { effectiveMods } from "./enhance.js?v=260711010";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -8,8 +9,8 @@ import { audio } from "./audio.js?v=260711009";
 //   melee -> draw-slash on press
 // vm picks the view-model rig; sound picks the shot SFX (default: id).
 const DEFS = [
-  { id: "rifle", name: "步枪", mode: "auto", damage: 14, fireRate: 0.1, mag: 30, reserve: 150, reload: 1.4, range: 120, recoil: 0.05, kick: 0.012 },
-  { id: "pistol", name: "手枪", mode: "semi", damage: 26, fireRate: 0.2, mag: 12, reserve: 96, reload: 1.0, range: 90, recoil: 0.08, kick: 0.022 },
+  { id: "rifle", name: "步枪", mode: "auto", damage: 14, fireRate: 0.1, mag: 30, reserve: 150, reload: 1.4, range: 120, recoil: 0.05, kick: 0.012, vm: "rifle", vmModel: "blaster-g" },
+  { id: "pistol", name: "手枪", mode: "semi", damage: 26, fireRate: 0.2, mag: 12, reserve: 96, reload: 1.0, range: 90, recoil: 0.08, kick: 0.022, vm: "pistol", vmModel: "blaster-a" },
   { id: "knife", name: "近战刀", mode: "melee", damage: 150, fireRate: 0.42, range: 2.4 },
 ];
 
@@ -19,7 +20,7 @@ const DEFS = [
 const SMG_DEF = {
   id: "smg", name: "原型冲锋枪", mode: "auto", damage: 9, fireRate: 1 / 15,
   mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
-  vm: "rifle", sound: "smg",
+  vm: "rifle", vmModel: "blaster-f", sound: "smg",
 };
 // Laser: a TRUE continuous beam. While the trigger is held it deals damage and
 // drains ammo every frame (no discrete cadence). `damage` here is DPS; ammo
@@ -27,7 +28,7 @@ const SMG_DEF = {
 const LASER_DEF = {
   id: "laser", name: "激光步枪", mode: "auto", damage: 130, fireRate: 0,
   mag: 100, reserve: 300, reload: 1.3, range: 160, recoil: 0, kick: 0,
-  vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
+  vm: "rifle", vmModel: "blaster-r", sound: "laser", tracer: 0x66e0ff, beam: true,
   beamContinuous: true, drainRate: 25,
 };
 // Gatling: spins up while the trigger is held — the barrel cadence climbs from
@@ -35,7 +36,7 @@ const LASER_DEF = {
 const MINIGUN_DEF = {
   id: "minigun", name: "加特林", mode: "auto", damage: 8, fireRate: 0.14,
   mag: 100, reserve: 400, reload: 3.6, range: 120, recoil: 0.03, kick: 0.006,
-  vm: "rifle", sound: "minigun", tracer: 0xffb060,
+  vm: "rifle", vmModel: "blaster-j", sound: "minigun", tracer: 0xffb060,
   spinup: true, spinFast: 0.045, spinUp: 0.9, spinDown: 0.7,
 };
 // Sniper: bolt-action, huge single-shot damage, right-click to scope (narrow
@@ -43,7 +44,7 @@ const MINIGUN_DEF = {
 const SNIPER_DEF = {
   id: "sniper", name: "反器材狙击枪", mode: "semi", damage: 150, fireRate: 1.1,
   mag: 5, reserve: 30, reload: 2.6, range: 320, recoil: 0.16, kick: 0.05,
-  vm: "rifle", sound: "sniper", tracer: 0xfff2c0,
+  vm: "rifle", vmModel: "blaster-e", sound: "sniper", tracer: 0xfff2c0,
   scope: true, zoomFov: 28,
 };
 // Laser sniper (联狙): scoped rapid semi — hold to fire a rhythmic 4 bolts/sec,
@@ -51,7 +52,7 @@ const SNIPER_DEF = {
 const LASER_SNIPER_DEF = {
   id: "lasersniper", name: "激光狙击枪", mode: "auto", damage: 95, fireRate: 0.25,
   mag: 12, reserve: 72, reload: 2.2, range: 340, recoil: 0.05, kick: 0.02,
-  vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
+  vm: "rifle", vmModel: "blaster-p", sound: "laser", tracer: 0x66e0ff, beam: true,
   scope: true, zoomFov: 32, pierce: true, // beam punches through enemies in a line
 };
 // Rocket launcher: fires an explosive PROJECTILE (not hitscan). Single shot,
@@ -59,7 +60,7 @@ const LASER_SNIPER_DEF = {
 const ROCKET_DEF = {
   id: "rocket", name: "火箭筒", mode: "semi", fireRate: 1.0,
   mag: 1, reserve: 12, reload: 1.6, recoil: 0.14, kick: 0.05, // +50% faster reload
-  vm: "rifle", sound: "rocket", projectile: true,
+  vm: "rifle", vmModel: "blaster-h", sound: "rocket", projectile: true,
   projSpeed: 70, projGravity: 6, aoeRadius: 6.5, aoeDamage: 200, projColor: 0xffa040,
 };
 // Auto rocket launcher: rapid burst of slower, arcing rockets (more drop),
@@ -67,7 +68,7 @@ const ROCKET_DEF = {
 const AUTO_ROCKET_DEF = {
   id: "autorocket", name: "连发火箭筒", mode: "auto", fireRate: 0.35,
   mag: 8, reserve: 48, reload: 3.2, recoil: 0.06, kick: 0.02,
-  vm: "rifle", sound: "rocket", projectile: true,
+  vm: "rifle", vmModel: "blaster-d", sound: "rocket", projectile: true,
   projSpeed: 34, projGravity: 16, aoeRadius: 4.5, aoeDamage: 85, projColor: 0xff7a3a,
 };
 const PRIMARY_DEFS = {
@@ -168,11 +169,12 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (ps.crouching) s *= 0.6; // crouch tightens the cone
     }
     if (aiming) s *= 0.3; // aiming down sight steadies the shot
+    if (w.def.spreadMul) s *= w.def.spreadMul; // 枪托 enhancement steadies the cone
     return s;
   }
 
   let current = weapons[0];
-  vm.setWeapon(current.def.vm || current.def.id);
+  vm.setWeapon(current.def);
 
   const SWITCH_TIME = 0.16;
   let equipT = 0;
@@ -185,23 +187,48 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   const BASE_RESERVE = 999; // in the base (training) reserve ammo is unlimited
   let prevInArea = false; // tracks base<->area transitions for the ammo reset
 
-  // Swap the primary slot / gear modifiers to match the equipped loadout.
-  // Called by the shell when the account's equipment changes.
+  // Build an enhanced ("effective") def from a base def + the weapon's stored
+  // enhancement levels. Never mutates the shared base def.
+  function makeEffectiveDef(baseDef, weaponId) {
+    const m = effectiveMods(weaponId);
+    const d = Object.assign({}, baseDef);
+    if (baseDef.damage != null) d.damage = baseDef.damage * m.damageMul;
+    if (baseDef.aoeDamage != null) d.aoeDamage = baseDef.aoeDamage * m.damageMul;
+    if (baseDef.mag != null) d.mag = Math.max(1, Math.round(baseDef.mag * m.magMul));
+    if (baseDef.fireRate) d.fireRate = baseDef.fireRate * m.fireRateMul;
+    if (baseDef.recoil != null) d.recoil = baseDef.recoil * m.recoilMul;
+    if (baseDef.kick != null) d.kick = baseDef.kick * m.recoilMul;
+    d.spreadMul = m.spreadMul;
+    d._weaponId = weaponId;
+    d._sig = weaponId + ":" + [m.levels.mag, m.levels.core, m.levels.barrel, m.levels.muzzle, m.levels.stock].join(",");
+    return d;
+  }
+  // Apply an effective def to a slot, preserving ammo when nothing changed.
+  function applySlot(slot, baseDef, weaponId) {
+    const eff = makeEffectiveDef(baseDef, weaponId);
+    if (slot.def && slot.def._sig === eff._sig) return; // unchanged
+    const wasCurrent = current === slot;
+    if (wasCurrent) beamOff();
+    slot.def = eff;
+    slot.ammo = eff.mag ?? 0;
+    if (eff.reserve != null) slot.reserve = eff.reserve;
+    slot.reloading = false;
+    slot.recoil = 0;
+    slot.ammoFrac = 0;
+    slot.spin = 0;
+    slot.weaponId = weaponId;
+    if (wasCurrent) vm.setWeapon(eff);
+  }
+
+  // Swap the primary slot / gear modifiers to match the equipped loadout, and
+  // fold in per-weapon enhancement on all three slots. Called by the shell when
+  // the account's equipment or enhancement changes.
   function applyLoadout(opts = {}) {
     loadout.reloadMul = opts.reloadMul ?? 1;
-    const targetDef = PRIMARY_DEFS[opts.primary] || DEFS[0];
-    const slot = weapons[0];
-    if (slot.def !== targetDef) {
-      beamOff();
-      slot.def = targetDef;
-      slot.ammo = targetDef.mag;
-      slot.reserve = targetDef.reserve;
-      slot.reloading = false;
-      slot.recoil = 0;
-      slot.ammoFrac = 0;
-      slot.spin = 0;
-      if (current === slot) vm.setWeapon(targetDef.vm || targetDef.id);
-    }
+    const basePrimary = PRIMARY_DEFS[opts.primary] || DEFS[0];
+    applySlot(weapons[0], basePrimary, opts.primary || "ak47_black");
+    applySlot(weapons[1], DEFS[1], opts.secondary || "pistol_std");
+    applySlot(weapons[2], DEFS[2], opts.melee || "combat_knife");
   }
 
   // Returns the end point of the shot (hit point, or max range) so the caller
@@ -537,7 +564,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       equipT = Math.min(1, equipT + dt / SWITCH_TIME);
       if (equipT >= 1) {
         current = weapons[pendingIndex];
-        vm.setWeapon(current.def.vm || current.def.id);
+        vm.setWeapon(current.def);
         equipPhase = "raise";
       }
     } else if (equipPhase === "raise") {

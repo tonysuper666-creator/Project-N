@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711009";
-import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711009";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711010";
+import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711010";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711009";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711009";
+import { audio } from "./audio.js?v=260711010";
+import { loadCharacter, loadRobot, makeCharacter, characterReady } from "./character.js?v=260711010";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -13,8 +13,9 @@ export function createWorld(scene, hooks = {}) {
   const ROOM = 16;
   const HEIGHT = 7.5;
 
-  // Start downloading the rigged enemy model now so it's ready by deploy time.
+  // Start downloading the rigged enemy models now so they're ready by deploy.
   loadCharacter().catch(() => {}); // falls back to procedural soldiers if it fails
+  loadRobot().catch(() => {}); // second species (battle droid) for enemy variety
 
   scene.background = new THREE.Color(0x0c1622);
   scene.fog = new THREE.Fog(0x0c1622, 36, 92);
@@ -1212,12 +1213,21 @@ export function createWorld(scene, hooks = {}) {
       rig: null,
     };
 
+    // Pick a species for visual variety. Robots skew toward the tougher tiers
+    // (elite2 always a droid; grunts/elite1 ~40% droids); heavy & boss stay
+    // humanoid brutes. `species` can be forced via opts.
+    let species = opts.species;
+    if (!species) {
+      if (opts.tier === "elite2") species = "robot";
+      else if (opts.boss || opts.tier === "heavy") species = "soldier";
+      else species = Math.random() < 0.4 ? "robot" : "soldier";
+    }
     const inst = characterReady()
-      ? makeCharacter({ tint: tier.tint == null ? undefined : tier.tint, emissive: tier.emissive })
+      ? makeCharacter({ species, tint: tier.tint == null ? undefined : tier.tint, emissive: tier.emissive, kitIndex: Math.floor(Math.random() * 4) })
       : null;
     if (inst) {
       inst.group.scale.setScalar(scale);
-      inst.group.rotation.y = Math.PI; // GLB faces -Z; flip so its front matches +Z
+      inst.group.rotation.y = inst.baseYaw; // orient the model's front to +Z
       g.add(inst.group);
       ctrl.character = inst;
       ctrl.walkAnim = "Idle";

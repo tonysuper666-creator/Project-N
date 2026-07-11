@@ -1,7 +1,8 @@
-import { account } from "./account.js?v=260711009";
-import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711009";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711009";
-import { audio } from "./audio.js?v=260711009";
+import { account } from "./account.js?v=260711010";
+import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711010";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711010";
+import { audio } from "./audio.js?v=260711010";
+import { PARTS, MAX_LEVEL, getParts, weaponRarity, tryEnhance, effectiveMods } from "./enhance.js?v=260711010";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -131,9 +132,81 @@ export function createUI(hooks = {}) {
     return card;
   }
 
+  const RAR_LABEL = { common: "普通", rare: "稀有", epic: "史诗", legend: "传说" };
+  let enhanceSel = null; // currently-selected weapon id in the enhance panel
+
+  function ownedWeapons() {
+    const d = account.getData();
+    const ids = [];
+    const push = (id) => { if (id && ITEM_DB[id] && !ids.includes(id)) ids.push(id); };
+    for (const k of ["primary", "secondary", "melee"]) push(d.equipment[k]);
+    for (const e of d.inventory) { const it = ITEM_DB[e.id]; if (it && (it.type === "primary" || it.type === "secondary" || it.type === "melee")) push(e.id); }
+    return ids;
+  }
+
+  // Weapon-enhancement panel: pick a weapon, upgrade its 5 parts (materials +
+  // probability). Re-renders itself after each attempt.
+  function renderEnhance(wrap) {
+    wrap.innerHTML = "";
+    const weps = ownedWeapons();
+    if (!weps.length) { wrap.innerHTML = `<div class="enh-empty">暂无可强化的武器</div>`; return; }
+    const d = account.getData();
+    if (!enhanceSel || !weps.includes(enhanceSel)) enhanceSel = d.equipment.primary && weps.includes(d.equipment.primary) ? d.equipment.primary : weps[0];
+
+    const sel = document.createElement("div"); sel.className = "enh-sel";
+    for (const id of weps) {
+      const it = ITEM_DB[id]; const rar = weaponRarity(id);
+      const chip = document.createElement("button");
+      chip.className = "enh-chip rar-" + rar + (id === enhanceSel ? " on" : "");
+      chip.innerHTML = `<span class="enh-chip-ic">${it.icon}</span><span class="enh-chip-nm">${it.name}</span>`;
+      chip.addEventListener("click", () => { enhanceSel = id; renderEnhance(wrap); });
+      sel.appendChild(chip);
+    }
+    wrap.appendChild(sel);
+
+    const it = ITEM_DB[enhanceSel];
+    const rar = weaponRarity(enhanceSel);
+    const mods = effectiveMods(enhanceSel);
+    const head = document.createElement("div"); head.className = "enh-head rar-" + rar;
+    head.innerHTML = `<span class="enh-ic">${it.icon}</span><div class="enh-hmain">` +
+      `<div class="enh-nm">${it.name} <em class="diff enh-rar rar-${rar}">${RAR_LABEL[rar]}</em></div>` +
+      `<div class="enh-sum">伤害 ×${mods.damageMul.toFixed(2)} · 射速 ×${(1 / mods.fireRateMul).toFixed(2)} · 弹匣 ×${mods.magMul.toFixed(2)} · 后坐 ×${mods.recoilMul.toFixed(2)} · 稳定 ×${mods.spreadMul.toFixed(2)}</div></div>`;
+    wrap.appendChild(head);
+
+    const p = getParts(enhanceSel);
+    for (const part of PARTS) {
+      const lvl = p[part.key] || 0;
+      const maxed = lvl >= MAX_LEVEL;
+      const cost = maxed ? [] : part.cost(lvl);
+      const chance = maxed ? 0 : part.chance(lvl);
+      const row = document.createElement("div"); row.className = "enh-row rar-" + part.tier;
+      row.innerHTML = `<span class="enh-pic">${part.icon}</span>` +
+        `<div class="enh-info"><div class="enh-pn">${part.label} · ${part.attr} <em class="enh-tier rar-${part.tier}">${RAR_LABEL[part.tier]}级</em></div>` +
+        `<div class="enh-lvl"><span class="enh-pips">${"◆".repeat(lvl)}${"◇".repeat(MAX_LEVEL - lvl)}</span> <b>Lv.${lvl}/${MAX_LEVEL}</b></div>` +
+        `<div class="enh-cd">${part.desc}</div></div>` +
+        `<div class="enh-act">${maxed ? '<div class="enh-max">已满级</div>' : `<div class="enh-cost">${costChips(cost)}</div><div class="enh-ch">成功率 <b>${Math.round(chance * 100)}%</b></div><button class="rowBtn deploy enh-btn">强化</button>`}</div>`;
+      if (!maxed) {
+        row.querySelector(".enh-btn").addEventListener("click", () => {
+          const res = tryEnhance(enhanceSel, part.key);
+          if (!res.ok) { toast(res.msg); return; }
+          toast(res.msg);
+          if (res.success && audio.levelup) audio.levelup();
+          if (hooks.onLoadoutChanged) hooks.onLoadoutChanged();
+          renderEnhance(wrap); refreshCoins();
+        });
+      }
+      wrap.appendChild(row);
+    }
+  }
+
   function openVendor() {
     open = true;
-    const body = shell("装备商人 · 军械", "用材料制造高级武器 · 购买补给与复活币");
+    const body = shell("装备商人 · 军械", "强化武器 · 用材料制造高级武器 · 购买补给与复活币");
+
+    // ===== 武器强化 =====
+    sectionHead(body, "🛠️ 武器强化（消耗材料 · 概率成功）");
+    const enhWrap = document.createElement("div"); enhWrap.className = "enhWrap"; body.appendChild(enhWrap);
+    renderEnhance(enhWrap);
 
     // ===== 武器制造 =====
     sectionHead(body, "🔧 武器制造");

@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711009";
-import { createPlayer } from "./player.js?v=260711009";
-import { createWeapons } from "./weapons.js?v=260711009";
-import { createUI } from "./ui.js?v=260711009";
-import "./shell.js?v=260711009"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711009";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711009";
-import { audio } from "./audio.js?v=260711009";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711009";
-import { xpNeed } from "./account.js?v=260711009";
-import { createProfile } from "./profile.js?v=260711009";
+import { createWorld } from "./world.js?v=260711010";
+import { createPlayer } from "./player.js?v=260711010";
+import { createWeapons } from "./weapons.js?v=260711010";
+import { createUI } from "./ui.js?v=260711010";
+import "./shell.js?v=260711010"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711010";
+import { renderInventory, ITEM_DB, armorMit, gearReloadMul } from "./inventory.js?v=260711010";
+import { audio } from "./audio.js?v=260711010";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711010";
+import { xpNeed } from "./account.js?v=260711010";
+import { createProfile } from "./profile.js?v=260711010";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711009";
+const BUILD_VERSION = "260711010";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -73,11 +73,11 @@ const world = createWorld(scene, {
   // Enemy fire that connects: flash the screen, then die/respawn at 0 HP.
   onPlayerHit(dmg) {
     if (dead || !inputState.locked) return;
-    // equipped armor soaks incoming damage (nano armor 30%, helmet 18%)
+    // equipped armor soaks incoming damage (data-driven mitigation tiers)
     const d = account.getData();
     const armor = d && d.equipment && d.equipment.armor;
-    if (armor === "nano_armor") dmg = Math.max(1, Math.round(dmg * 0.7));
-    else if (armor === "combat_helm") dmg = Math.max(1, Math.round(dmg * 0.82));
+    const mit = armorMit(armor);
+    if (mit > 0) dmg = Math.max(1, Math.round(dmg * (1 - mit)));
     player.state.health = Math.max(0, player.state.health - dmg);
     audio.hurt();
     const flash = document.getElementById("damageFlash");
@@ -289,13 +289,16 @@ function syncLoadout() {
   const d = account.getData();
   if (!d) return;
   const primary = (d.equipment && d.equipment.primary) || "ak47_black";
+  const secondary = (d.equipment && d.equipment.secondary) || "pistol_std";
+  const melee = (d.equipment && d.equipment.melee) || "combat_knife";
   const gear = d.equipment && d.equipment.gear;
-  const reloadMul = gear === "combat_pack" ? 0.75 : gear === "tac_gloves" ? 0.85 : 1;
-  weapons.applyLoadout({ primary, reloadMul });
+  const reloadMul = gearReloadMul(gear);
+  weapons.applyLoadout({ primary, secondary, melee, reloadMul });
   if (window.__PN_SET_AK_SKIN__) {
     window.__PN_SET_AK_SKIN__(primary === "ak47_gold" ? "gold" : "black");
   }
-  const max = Math.min(140, 100 + (d.level - 1) * 5);
+  const armorHp = (d.equipment && ITEM_DB[d.equipment.armor] && ITEM_DB[d.equipment.armor].hpBonus) || 0;
+  const max = Math.min(160, 100 + (d.level - 1) * 5 + armorHp);
   player.state.maxHealth = max;
   player.state.health = Math.min(player.state.health, max);
 }

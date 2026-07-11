@@ -6,8 +6,20 @@
 
 - **Soldier / "vanguard"**（`*/assets/models/Soldier.glb`）
   - 来源：three.js 官方示例资源库（<https://github.com/mrdoob/three.js> · `examples/models/gltf/Soldier.glb`），角色由 Adobe **Mixamo** 生成绑定。
-  - 用途：游戏内敌人与个人信息页的 3D 人物（骨骼动画：Idle / Walk / Run）。
+  - 用途：游戏内敌人（士兵种类）与个人信息页的 3D 人物（骨骼动画：Idle / Walk / Run）。
   - 署名：按 Creative Commons Attribution（CC-BY）方式署名处理。若正式发行需更严格的授权，可无缝替换为 CC0 模型（如 Quaternius <https://quaternius.com>，CC0 公有领域），加载代码 `src/character.js` 无需改动，只需替换 `assets/models/` 下的 glb 文件。
+
+- **RobotExpressive**（`*/assets/models/RobotExpressive.glb`）
+  - 来源：three.js 官方示例资源库（<https://github.com/mrdoob/three.js> · `examples/models/gltf/RobotExpressive/RobotExpressive.glb`）。
+  - 授权：**CC0 / 公有领域**（three.js 官方示例资源，可自由用于商业与非商业用途）。
+  - 用途：游戏内第二类敌人（战斗机器人 / 机甲），骨骼动画（Idle / Walking / Running / Punch）经 `src/character.js` 映射到统一的 Idle/Walk/Run 接口，为小怪形象增加多样性。
+
+## 3D 武器模型 / Weapon models
+
+- **Kenney "Blaster Kit"**（`*/assets/models/guns/blaster-*.glb` + `Textures/colormap.png`）
+  - 来源：Kenney（<https://kenney.nl/assets/blaster-kit>）。
+  - 授权：**CC0（Creative Commons Zero，公有领域）**，可自由用于个人、教育与商业用途、无需署名（此处署名仅为致谢）。见 `assets/models/guns/KENNEY_LICENSE.txt`。
+  - 用途：第一人称手持武器模型（步枪 / 冲锋枪 / 激光步枪 / 加特林 / 狙击枪 / 激光狙 / 火箭筒 / 连发火箭 / 手枪），由 `src/viewmodel.js` 按武器加载对应 glb 并自动归一化朝向。
 
 ## 场景贴图 / Environment textures
 

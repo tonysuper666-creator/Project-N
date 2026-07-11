@@ -1,123 +1,150 @@
 import * as THREE from "three";
-import { buildRifle, buildPistol, buildKnife, makeFlash } from "./models.js?v=260711009";
-import { loadAK, loadArms } from "./akmodel.js?v=260711009";
+import { buildKnife, makeFlash } from "./models.js?v=260711010";
+import { loadArms } from "./akmodel.js?v=260711010";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
-// 3D first-person view-model. Each weapon is a real mesh gripped by rigged arms
-// (see models.js), parented under the camera. A `poseGroup` applies the live
-// recoil / sway / reload / switch transform every frame. This replaces the old
-// flat 2D canvas overlay so hands actually sit on the weapon in perspective.
+// 3D first-person view-model. Each weapon shows a distinct real GLB gun model
+// (CC0 Kenney "Blaster Kit" — see docs/CREDITS.md) gripped in front of the
+// camera. Models are auto-normalised (centred + scaled to a target length) and
+// pointed down -Z (the Kenney blasters have their muzzle on -Z, grip on -Y, so
+// they need no re-orientation). The melee knife stays procedural.
 
-// Base placement of each weapon in camera space (eye at origin, -Z forward).
-const BASE = {
-  rifle: { pos: new THREE.Vector3(0.15, -0.17, -0.5), rot: new THREE.Euler(0.02, 0.06, 0.02) },
-  pistol: { pos: new THREE.Vector3(0.12, -0.19, -0.45), rot: new THREE.Euler(0.0, 0.05, 0.0) },
-  knife: { pos: new THREE.Vector3(-0.08, -0.13, -0.67), rot: new THREE.Euler(-0.36, 0.24, -0.52), scale: 1.12 },
+// Placement per pose category, in camera space (eye at origin, -Z forward).
+// `len` = target longest-axis length in metres (the auto-scale target).
+const GUN_BASE = {
+  rifle: { pos: [0.15, -0.16, -0.52], rot: [0.05, 0.02, 0.04], len: 0.44 },
+  pistol: { pos: [0.12, -0.15, -0.40], rot: [0.02, 0.0, 0.0], len: 0.26 },
+  knife: { pos: [-0.08, -0.13, -0.67], rot: [-0.36, 0.24, -0.52], scale: 1.12 },
 };
+const MODEL_DIR = "./assets/models/guns/";
+const MODEL_VER = "260711010";
+const loader = new GLTFLoader();
 
 export function createViewmodel(camera) {
   const root = new THREE.Group();
   camera.add(root);
-
   const poseGroup = new THREE.Group(); // live pose (recoil/sway/switch) lives here
   root.add(poseGroup);
 
-  const builders = { rifle: buildRifle, pistol: buildPistol, knife: buildKnife };
-  const built = {};
-  for (const id of Object.keys(builders)) {
-    const b = builders[id]();
-    const base = BASE[id];
-    b.group.position.copy(base.pos);
-    b.group.rotation.copy(base.rot);
-    if (base.scale) b.group.scale.setScalar(base.scale);
-    b.group.visible = false;
-    b.group.traverse((o) => { o.frustumCulled = false; }); // camera-attached: never cull
-    poseGroup.add(b.group);
-    built[id] = b;
+  // --- procedural melee knife (always available) ---
+  const knife = buildKnife();
+  {
+    const b = GUN_BASE.knife;
+    knife.group.position.set(...b.pos);
+    knife.group.rotation.set(...b.rot);
+    knife.group.scale.setScalar(b.scale);
+    knife.group.visible = false;
+    knife.group.traverse((o) => { o.frustumCulled = false; });
+    poseGroup.add(knife.group);
   }
-
-  // Attach the CS arms (same hands as the AK) to the melee knife instead of a
-  // procedural hand. Tunable via window.__PN_KNIFE_ARM__ / tools/knife.html.
+  // Attach the CS arms to the knife (tunable via tools/knife.html).
   const KA = (typeof window !== "undefined" && window.__PN_KNIFE_ARM__) || { s: 0.03, px: 0, py: -0.1, pz: 0.1, rx: 0, ry: 0, rz: 0 };
   loadArms((arms) => {
     arms.scale.setScalar(KA.s);
     arms.position.set(KA.px, KA.py, KA.pz);
     arms.rotation.set(KA.rx, KA.ry, KA.rz);
-    built.knife.blade.add(arms); // assembly space (where the dagger handle sits)
+    knife.blade.add(arms);
     if (typeof window !== "undefined") {
       window.__PN_SET_KNIFE_ARM__ = (s, px, py, pz, rx, ry, rz) => { arms.scale.setScalar(s); arms.position.set(px, py, pz); arms.rotation.set(rx, ry, rz); };
     }
   });
 
-  let currentId = null;
+  // --- GLB gun models, built lazily and cached by model key ---
+  const guns = {}; // key -> { group, flash, ready, category, meshes }
+  let currentKey = "knife";
   let flashT = 0;
-  // While the AK is still loading we hide the rifle entirely (rather than flash
-  // the procedural placeholder). It's revealed once the AK swaps in, or if the
-  // load fails and we fall back to the procedural rifle.
-  let akState = "loading"; // loading | ready | failed
+  let rifleSkin = "black";
 
-  function show(id) {
-    for (const k of Object.keys(built)) {
-      const hideLoadingRifle = id === "rifle" && akState === "loading";
-      built[k].group.visible = k === id && !hideLoadingRifle;
+  function applySkin(entry) {
+    if (!entry || entry.category !== "rifle") return;
+    const gold = rifleSkin === "gold";
+    for (const m of entry.meshes) {
+      if (!m.material) continue;
+      m.material.emissive = new THREE.Color(gold ? 0x5a3d00 : 0x000000);
+      m.material.emissiveIntensity = gold ? 0.5 : 0;
+      if (gold) { m.material.color = new THREE.Color(0xffcf45); m.material.metalness = 0.7; m.material.roughness = 0.3; }
     }
-    currentId = id;
   }
 
-  // Swap the procedural rifle for the real gold AK (with its own CS arms/hands)
-  // once it loads.
-  loadAK(
-    (holder, muzzle) => {
-      const flash = makeFlash(muzzle);
-      const akGroup = new THREE.Group();
-      akGroup.scale.x = -1; // mirror to a right-handed hold (gun on the right)
-      akGroup.add(holder);
-      akGroup.add(flash);
-      akGroup.traverse((o) => { o.frustumCulled = false; }); // never cull the view-model
-      poseGroup.remove(built.rifle.group);
-      poseGroup.add(akGroup);
-      built.rifle = { group: akGroup, muzzle, flash };
-      akState = "ready";
-      if (currentId === "rifle") show("rifle");
-    },
-    (err) => {
-      console.warn("AK model failed to load, keeping procedural rifle:", err);
-      akState = "failed";
-      if (currentId === "rifle") show("rifle");
-    }
-  );
+  function buildGun(key, category) {
+    const holder = new THREE.Group();
+    holder.visible = false;
+    poseGroup.add(holder);
+    const entry = { group: holder, flash: null, ready: false, category, meshes: [] };
+    guns[key] = entry;
+    loader.load(`${MODEL_DIR}${key}.glb?v=${MODEL_VER}`,
+      (g) => {
+        const model = g.scene;
+        model.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(model);
+        const size = box.getSize(new THREE.Vector3());
+        const center = box.getCenter(new THREE.Vector3());
+        model.position.sub(center); // centre on origin
+        const base = GUN_BASE[category] || GUN_BASE.rifle;
+        const s = (base.len || 0.5) / Math.max(size.x, size.y, size.z || 0.001);
+        const inner = new THREE.Group();
+        inner.add(model);
+        inner.scale.setScalar(s);
+        holder.add(inner);
+        holder.position.set(...base.pos);
+        holder.rotation.set(...base.rot);
+        model.traverse((o) => {
+          if (o.isMesh) { o.frustumCulled = false; o.castShadow = false; o.material = o.material.clone(); entry.meshes.push(o); }
+        });
+        // muzzle flash at the -Z (barrel) tip, in holder space after scaling
+        const muzzleZ = -(size.z * 0.5) * s - 0.03;
+        const flash = makeFlash(new THREE.Vector3(0, 0.01, muzzleZ));
+        holder.add(flash);
+        holder.traverse((o) => { o.frustumCulled = false; });
+        entry.flash = flash;
+        entry.ready = true;
+        applySkin(entry);
+        if (currentKey === key) holder.visible = true;
+      },
+      undefined,
+      (err) => { console.warn("gun model failed:", key, err); });
+    return entry;
+  }
+
+  function show() {
+    knife.group.visible = currentKey === "knife";
+    for (const k of Object.keys(guns)) guns[k].group.visible = (k === currentKey && guns[k].ready);
+  }
+
+  // Expose AK skin swap (gold craft) — retints the rifle-category gun model.
+  if (typeof window !== "undefined") {
+    window.__PN_SET_AK_SKIN__ = (which) => {
+      rifleSkin = which === "gold" ? "gold" : "black";
+      for (const k of Object.keys(guns)) applySkin(guns[k]);
+    };
+  }
 
   return {
-    setWeapon(id) {
-      this._id = id;
-      show(id);
+    // Accepts a weapon def; picks the model by def.vmModel and the pose
+    // category by def.vm / def.id. Melee -> the procedural knife.
+    setWeapon(def) {
+      if (!def || def.mode === "melee" || def.id === "knife") { currentKey = "knife"; show(); return; }
+      const category = def.vm || def.id || "rifle";
+      const key = def.vmModel || "blaster-g";
+      if (!guns[key]) buildGun(key, category === "pistol" ? "pistol" : "rifle");
+      currentKey = key;
+      show();
     },
-    // CF-style knife: the blade is always visible, so this is a no-op kept for
-    // API compatibility with the weapon system.
     setBladeDrawn() {},
-    // Live pose, in metres / radians, applied on top of each weapon's base.
     setPose({ posX = 0, posY = 0, posZ = 0, rotX = 0, rotY = 0, rotZ = 0 }) {
       poseGroup.position.set(posX, posY, posZ);
       poseGroup.rotation.set(rotX, rotY, rotZ);
     },
     flash() {
       flashT = 0.06;
-      const f = built[currentId] && built[currentId].flash;
-      if (f) {
-        f.visible = true;
-        f.rotation.z = Math.random() * Math.PI; // spin the star a bit each shot
-        f.userData.mat.opacity = 1;
-      }
+      const f = currentKey === "knife" ? null : (guns[currentKey] && guns[currentKey].flash);
+      if (f) { f.visible = true; f.rotation.z = Math.random() * Math.PI; f.userData.mat.opacity = 1; }
     },
-    // Called every frame.
     tick(dt) {
-      // Aspect-lock: a camera-attached view-model's horizontal screen position
-      // depends on the window's aspect ratio. Compensate so it always renders as
-      // if at a 16:9 reference (matches tools/aim.html regardless of window size).
-      root.scale.x = camera.aspect / (16 / 9);
-
+      root.scale.x = camera.aspect / (16 / 9); // aspect-lock (16:9 reference)
       if (flashT > 0) {
         flashT -= dt;
-        const f = built[currentId] && built[currentId].flash;
+        const f = currentKey === "knife" ? null : (guns[currentKey] && guns[currentKey].flash);
         if (f) {
           const k = Math.max(0, flashT / 0.06);
           f.userData.mat.opacity = k;
