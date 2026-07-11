@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { buildRifle, buildPistol, buildKnife, makeFlash } from "./models.js?v=260710012";
-import { loadAK, loadArms } from "./akmodel.js?v=260710012";
+import { buildRifle, buildPistol, buildKnife, makeFlash } from "./models.js?v=260711001";
+import { loadAK, loadArms } from "./akmodel.js?v=260711001";
 
 // 3D first-person view-model. Each weapon is a real mesh gripped by rigged arms
 // (see models.js), parented under the camera. A `poseGroup` applies the live

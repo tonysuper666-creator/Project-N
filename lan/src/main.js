@@ -4,11 +4,11 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createArena, buildAvatar } from "./arena.js?v=260710012";
-import { createPlayer } from "./player.js?v=260710012";
-import { createWeapons } from "./weapons.js?v=260710012";
-import { createNet } from "./net.js?v=260710012";
-import { audio } from "./audio.js?v=260710012";
+import { createArena, buildAvatar } from "./arena.js?v=260711001";
+import { createPlayer } from "./player.js?v=260711001";
+import { createWeapons } from "./weapons.js?v=260711001";
+import { createNet } from "./net.js?v=260711001";
+import { audio } from "./audio.js?v=260711001";
 
 const BUILD_VERSION = "260611lan3";
 document.getElementById("buildVer").textContent = `v${BUILD_VERSION}`;

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { techFloor, techPanel, brushedMetal } from "./textures.js?v=260710012";
+import { techFloor, techPanel, brushedMetal } from "./textures.js?v=260711001";
 
 // A compact, symmetric 1v1 arena: bounded room, cover crates and pillars,
 // two spawn points at opposite ends. No NPCs, no doors.

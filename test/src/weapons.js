@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260710012";
-import { audio } from "./audio.js?v=260710012";
+import { createViewmodel } from "./viewmodel.js?v=260711001";
+import { audio } from "./audio.js?v=260711001";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
