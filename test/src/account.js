@@ -149,12 +149,25 @@ export const account = {
 // ==========================================================================
 const DEV_BUILTIN_USER = "admin";
 const DEV_BUILTIN_PASS = "admin";
+// Dev convenience: the admin account is kept stocked with weapon-enhancement /
+// crafting materials so upgrades can be tested freely (topped up to 9999 each
+// on load, never reduced). Remove this list + the loop below for production.
+const DEV_MATS = ["upgrade_module", "weapon_core", "alloy_core", "scrap", "data_chip"];
 export function ensureDevAccount() {
   const all = readAll();
   if (!all[DEV_BUILTIN_USER]) {
     all[DEV_BUILTIN_USER] = { passHash: hash(DEV_BUILTIN_PASS), created: Date.now(), data: defaultData() };
-    writeAll(all);
   }
+  // Keep admin's enhancement materials at 9999 each (applies to an existing save too).
+  const d = all[DEV_BUILTIN_USER] && all[DEV_BUILTIN_USER].data;
+  if (d && Array.isArray(d.inventory)) {
+    for (const id of DEV_MATS) {
+      const e = d.inventory.find((x) => x.id === id);
+      if (e) { if (e.qty < 9999) e.qty = 9999; }
+      else d.inventory.push({ id, qty: 9999 });
+    }
+  }
+  writeAll(all);
   // auto-login as admin if there's no active session yet
   if (!localStorage.getItem(SESS_KEY)) localStorage.setItem(SESS_KEY, DEV_BUILTIN_USER);
 }
