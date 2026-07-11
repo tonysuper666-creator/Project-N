@@ -8,7 +8,7 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 // "Soldier" (Mixamo "vanguard") model — see docs/CREDITS.md for attribution;
 // swap the file for a CC0 model later without touching this code.
 
-const MODEL_URL = "./assets/models/Soldier.glb?v=260711001";
+const MODEL_URL = "./assets/models/Soldier.glb?v=260711002";
 const TARGET_HEIGHT = 1.85; // metres — sized so a bodyshot lands centre-mass
 
 // --- COD-style tactical gear, bolted onto the rigged skeleton ---------------
@@ -150,9 +150,17 @@ export function makeCharacter(opts = {}) {
   let headBone = null;
   model.traverse((o) => { if (o.isBone && /Head$/.test(o.name)) headBone = o; });
 
+  // Sync the walk/run leg cycle to the real ground speed so the feet don't
+  // slide (moonwalk). Idle stays at 1x. rate = movementSpeed / clip-natural.
+  function setLocoRate(rate) {
+    const r = Math.max(0.4, Math.min(2.0, rate));
+    if (actions.Walk) actions.Walk.timeScale = r;
+    if (actions.Run) actions.Run.timeScale = r;
+  }
+
   return {
     group, model, mixer, bodies, headBone, actions,
-    play,
+    play, setLocoRate,
     tick: (dt) => mixer.update(dt),
     // brief white-hot flash on hit
     flash() {

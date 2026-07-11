@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711001";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711001";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711002";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711002";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711001";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711001";
+import { audio } from "./audio.js?v=260711002";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711002";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -939,9 +939,12 @@ export function createWorld(scene, hooks = {}) {
       : null;
     if (inst) {
       inst.group.scale.setScalar(scale);
+      inst.group.rotation.y = Math.PI; // GLB faces -Z; flip so its front matches +Z (the facing convention)
       g.add(inst.group);
       ctrl.character = inst;
       ctrl.walkAnim = "Idle";
+      ctrl.lastX = g.position.x; // for measuring real speed (anti foot-slide)
+      ctrl.lastZ = g.position.z;
     } else {
       const body = buildSoldier(heavy ? 0xb03a3a : 0xc8d2dc);
       body.scale.setScalar(scale);
@@ -1225,6 +1228,13 @@ export function createWorld(scene, hooks = {}) {
           if (e.character) { // rigged model: blend Idle/Walk/Run clips
             const want = !movingNow ? "Idle" : dist > 9 ? "Run" : "Walk";
             if (want !== e.walkAnim) { e.character.play(want); e.walkAnim = want; }
+            // measure the real ground speed and match the leg cycle to it so the
+            // feet plant instead of sliding (no root motion in the clips).
+            const realSpeed = dt > 0 ? Math.hypot(e.group.position.x - (e.lastX ?? e.group.position.x), e.group.position.z - (e.lastZ ?? e.group.position.z)) / dt : 0;
+            e.lastX = e.group.position.x;
+            e.lastZ = e.group.position.z;
+            if (want === "Run") e.character.setLocoRate(realSpeed / 3.4);
+            else if (want === "Walk") e.character.setLocoRate(realSpeed / 1.35);
           } else if (e.rig) { // procedural fallback: swing the limb pivots
             if (movingNow) {
               e.walkPhase += dt * (5.5 + e.speed * 2.5);

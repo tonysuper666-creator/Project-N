@@ -4,17 +4,17 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711001";
-import { createPlayer } from "./player.js?v=260711001";
-import { createWeapons } from "./weapons.js?v=260711001";
-import { createUI } from "./ui.js?v=260711001";
-import "./shell.js?v=260711001"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711001";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711001";
-import { audio } from "./audio.js?v=260711001";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711001";
-import { xpNeed } from "./account.js?v=260711001";
-import { createProfile } from "./profile.js?v=260711001";
+import { createWorld } from "./world.js?v=260711002";
+import { createPlayer } from "./player.js?v=260711002";
+import { createWeapons } from "./weapons.js?v=260711002";
+import { createUI } from "./ui.js?v=260711002";
+import "./shell.js?v=260711002"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711002";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711002";
+import { audio } from "./audio.js?v=260711002";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711002";
+import { xpNeed } from "./account.js?v=260711002";
+import { createProfile } from "./profile.js?v=260711002";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
