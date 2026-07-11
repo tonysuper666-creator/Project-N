@@ -1,4 +1,4 @@
-import { account } from "./account.js?v=260711002";
+import { account } from "./account.js?v=260711003";
 
 // Item database. Equip-able types: primary / secondary / melee / armor / gear.
 // "material" items are non-equippable (stackable resources / consumables).
@@ -6,23 +6,34 @@ export const ITEM_DB = {
   ak47_black: { name: "AK-47", type: "primary", rarity: "common", icon: "🔫", stats: { 伤害: 38, 射速: 600, 稳定: 65 }, desc: "制式突击步枪（默认黑色涂装）。" },
   ak47_gold: { name: "黄金 AK-47", type: "primary", rarity: "legend", icon: "🔫", stats: { 伤害: 42, 射速: 600, 稳定: 70 }, desc: "传说级金枪，可在商人处用材料兑换。" },
   smg_proto: { name: "原型冲锋枪", type: "primary", rarity: "epic", icon: "🔫", stats: { 伤害: 9, 射速: 900 }, desc: "实验型高射速冲锋枪，Area 区域掉落。装备为主武器后即可使用。" },
+  laser_rifle: { name: "激光步枪", type: "primary", rarity: "epic", icon: "🔫", stats: { 伤害: 13, 射速: 720, 射程: 160 }, desc: "定向能量武器，弹道笔直、后坐极低、射程远。装备为主武器后即可使用。" },
+  minigun: { name: "加特林", type: "primary", rarity: "legend", icon: "🔫", stats: { 伤害: 8, 射速: 1200, 弹匣: 120 }, desc: "重型转膛机枪，超高射速与弹匣，换弹缓慢。装备为主武器后即可使用。" },
   pistol_std: { name: "制式手枪", type: "secondary", rarity: "common", icon: "🔫", stats: { 伤害: 26, 射速: 300 }, desc: "可靠的副武器。" },
   combat_knife: { name: "作战匕首", type: "melee", rarity: "common", icon: "🗡️", stats: { 伤害: 150 }, desc: "近身致命。" },
   nano_armor: { name: "纳米护甲", type: "armor", rarity: "epic", icon: "🛡️", stats: { 减伤: "30%" }, desc: "装备后受到的伤害降低 30%。" },
+  combat_helm: { name: "作战头盔", type: "armor", rarity: "rare", icon: "🪖", stats: { 减伤: "18%" }, desc: "装备后受到的伤害降低 18%。" },
   tac_gloves: { name: "战术手套", type: "gear", rarity: "rare", icon: "🧤", stats: { 换弹: "+15%" }, desc: "装备后换弹速度提升 15%。" },
+  combat_pack: { name: "战术背包", type: "gear", rarity: "epic", icon: "🎒", stats: { 换弹: "+25%" }, desc: "装备后换弹速度提升 25%。" },
   med_stim: { name: "医疗针剂", type: "material", rarity: "common", icon: "💉", stats: {}, desc: "消耗品，回复生命。" },
   scrap: { name: "合金废料", type: "material", rarity: "common", icon: "⚙️", stats: {}, desc: "通用制造材料，可在商人处兑换武器。" },
+  alloy_core: { name: "合金核心", type: "material", rarity: "epic", icon: "🔩", stats: {}, desc: "高级制造材料，稀有掉落。" },
   data_chip: { name: "数据芯片", type: "material", rarity: "rare", icon: "💾", stats: {}, desc: "用于解锁与升级。" },
 };
 
 // Drop table for Area enemies: mostly materials, small chance of a finished
 // weapon. Returns { id, qty }.
 const LOOT_TABLE = [
-  { id: "scrap", min: 1, max: 3, w: 52 },
-  { id: "data_chip", min: 1, max: 1, w: 24 },
-  { id: "med_stim", min: 1, max: 1, w: 13 },
-  { id: "smg_proto", min: 1, max: 1, w: 8 }, // small chance: finished weapon
-  { id: "ak47_gold", min: 1, max: 1, w: 3 }, // rare: gold AK directly
+  { id: "scrap", min: 1, max: 4, w: 42 },
+  { id: "data_chip", min: 1, max: 2, w: 20 },
+  { id: "med_stim", min: 1, max: 1, w: 12 },
+  { id: "alloy_core", min: 1, max: 1, w: 7 }, // premium crafting material
+  { id: "combat_helm", min: 1, max: 1, w: 5 }, // gear: helmet
+  { id: "tac_gloves", min: 1, max: 1, w: 4 }, // gear: gloves
+  { id: "smg_proto", min: 1, max: 1, w: 4 }, // weapon: SMG
+  { id: "laser_rifle", min: 1, max: 1, w: 3 }, // weapon: laser rifle
+  { id: "combat_pack", min: 1, max: 1, w: 2 }, // gear: tactical pack
+  { id: "ak47_gold", min: 1, max: 1, w: 2 }, // rare: gold AK directly
+  { id: "minigun", min: 1, max: 1, w: 1 }, // legendary: gatling
 ];
 export function rollLoot() {
   const total = LOOT_TABLE.reduce((s, e) => s + e.w, 0);

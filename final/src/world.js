@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711002";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711002";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711003";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711003";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711002";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711002";
+import { audio } from "./audio.js?v=260711003";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711003";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -1054,7 +1054,7 @@ export function createWorld(scene, hooks = {}) {
   }
 
   // Bright, very short tracer for the player's own shots.
-  function spawnPlayerTracer(camera, end) {
+  function spawnPlayerTracer(camera, end, opts = {}) {
     const from = new THREE.Vector3();
     camera.getWorldPosition(from);
     const dir = new THREE.Vector3();
@@ -1062,10 +1062,24 @@ export function createWorld(scene, hooks = {}) {
     // offset toward the muzzle (right + down + forward of the eye)
     const rightV = new THREE.Vector3().crossVectors(dir, camera.up).normalize();
     from.addScaledVector(rightV, 0.14).addScaledVector(camera.up, -0.12).addScaledVector(dir, 0.55);
+    const color = opts.color != null ? opts.color : 0xffe9a0;
     const geo = new THREE.BufferGeometry().setFromPoints([from, end]);
-    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color: 0xffe9a0, transparent: true, opacity: 0.7 }));
+    const line = new THREE.Line(geo, new THREE.LineBasicMaterial({ color, transparent: true, opacity: opts.beam ? 0.95 : 0.7 }));
     scene.add(line);
-    tracers.push({ line, life: 0.06, max: 0.06 });
+    // laser beams linger a touch longer + glow with a fat translucent tube
+    if (opts.beam) {
+      const mid = from.clone().add(end).multiplyScalar(0.5);
+      const len = from.distanceTo(end);
+      const tube = new THREE.Mesh(
+        new THREE.CylinderGeometry(0.03, 0.03, len, 6),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.4 }),
+      );
+      tube.position.copy(mid);
+      tube.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), end.clone().sub(from).normalize());
+      scene.add(tube);
+      tracers.push({ line: tube, life: 0.1, max: 0.1 });
+    }
+    tracers.push({ line, life: opts.beam ? 0.1 : 0.06, max: opts.beam ? 0.1 : 0.06 });
   }
   function spawnLoot(pos) {
     const drop = rollLoot();
@@ -1178,8 +1192,12 @@ export function createWorld(scene, hooks = {}) {
       if (!e.alive) continue;
       e.group.position.y = Math.sin(state.time * 1.6 + e.phase) * 0.04;
       if (playerPos) {
-        // face the player on the yaw axis only (no pitch, so it never tips over)
-        e.group.rotation.set(0, Math.atan2(playerPos.x - e.group.position.x, playerPos.z - e.group.position.z), 0);
+        // record last frame's position first so real ground speed can be
+        // measured after the move (drives the leg-cycle rate; anti foot-slide)
+        const prevX = e.group.position.x;
+        const prevZ = e.group.position.z;
+        // default facing toward the player (used when standing still to shoot)
+        const facePlayerYaw = Math.atan2(playerPos.x - e.group.position.x, playerPos.z - e.group.position.z);
         if (state.inArea) {
           const dx = playerPos.x - e.group.position.x;
           const dz = playerPos.z - e.group.position.z;
@@ -1190,8 +1208,8 @@ export function createWorld(scene, hooks = {}) {
           let moveX = 0;
           let moveZ = 0;
           if (e.stagger <= 0) {
-            if (dist > 9) { // weaving advance toward firing range
-              const weave = Math.sin(state.time * 1.7 + e.strafePhase) * 0.55 * e.strafeDir;
+            if (dist > 9) { // weaving advance toward firing range (mostly forward)
+              const weave = Math.sin(state.time * 1.7 + e.strafePhase) * 0.28 * e.strafeDir;
               moveX = ux - uz * weave;
               moveZ = uz + ux * weave;
             } else if (dist < 5.5) { // too close: back off at an angle
@@ -1223,14 +1241,27 @@ export function createWorld(scene, hooks = {}) {
             e.group.position.x = Math.min(AX + FH - 1.5, Math.max(AX - FH + 1.5, e.group.position.x));
             e.group.position.z = Math.min(FH - 1.5, Math.max(-FH + 1.5, e.group.position.z));
           }
-          // drive locomotion animation from actual movement
           const movingNow = moveMag > 0.03 && e.stagger <= 0;
+          // --- BODY FACING (anti foot-slide) ---------------------------------
+          // The legs only have a forward walk/run cycle. If the body faced the
+          // player while travelling sideways the feet would skate. So while
+          // moving we turn the body toward the actual travel direction; when
+          // holding still we swing back to face the player (to aim/fire). The
+          // turn is eased so it never snaps.
+          const targetYaw = movingNow
+            ? Math.atan2(e.group.position.x - prevX, e.group.position.z - prevZ)
+            : facePlayerYaw;
+          let dyaw = targetYaw - e.group.rotation.y;
+          while (dyaw > Math.PI) dyaw -= Math.PI * 2;
+          while (dyaw < -Math.PI) dyaw += Math.PI * 2;
+          e.group.rotation.set(0, e.group.rotation.y + dyaw * Math.min(1, dt * 9), 0);
+          // drive locomotion animation from actual movement
           if (e.character) { // rigged model: blend Idle/Walk/Run clips
             const want = !movingNow ? "Idle" : dist > 9 ? "Run" : "Walk";
             if (want !== e.walkAnim) { e.character.play(want); e.walkAnim = want; }
             // measure the real ground speed and match the leg cycle to it so the
             // feet plant instead of sliding (no root motion in the clips).
-            const realSpeed = dt > 0 ? Math.hypot(e.group.position.x - (e.lastX ?? e.group.position.x), e.group.position.z - (e.lastZ ?? e.group.position.z)) / dt : 0;
+            const realSpeed = dt > 0 ? Math.hypot(e.group.position.x - prevX, e.group.position.z - prevZ) / dt : 0;
             e.lastX = e.group.position.x;
             e.lastZ = e.group.position.z;
             if (want === "Run") e.character.setLocoRate(realSpeed / 3.4);
@@ -1270,6 +1301,9 @@ export function createWorld(scene, hooks = {}) {
             e.flashT -= dt;
             if (e.flashT <= 0 && e.flashMesh) e.flashMesh.visible = false;
           }
+        } else {
+          // outside a combat area: just stand and face the player
+          e.group.rotation.set(0, facePlayerYaw, 0);
         }
       }
       // advance the skeletal animation + fade the hit flash on rigged enemies

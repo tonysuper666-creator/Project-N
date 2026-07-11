@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711002";
-import { audio } from "./audio.js?v=260711002";
+import { createViewmodel } from "./viewmodel.js?v=260711003";
+import { audio } from "./audio.js?v=260711003";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -13,19 +13,33 @@ const DEFS = [
   { id: "knife", name: "近战刀", mode: "melee", damage: 150, fireRate: 0.42, range: 2.4 },
 ];
 
-// Alternate primary: the looted prototype SMG (equip it in the backpack).
-// Shares the rifle view-model rig for now (dedicated model comes later).
+// Alternate primaries (looted; equip in the backpack). They share the rifle
+// view-model rig for now but have distinct stats, sounds and tracer colours.
+// `tracer` recolours the bullet line; `beam` widens+brightens it (laser look).
 const SMG_DEF = {
   id: "smg", name: "原型冲锋枪", mode: "auto", damage: 9, fireRate: 1 / 15,
   mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
   vm: "rifle", sound: "smg",
 };
+const LASER_DEF = {
+  id: "laser", name: "激光步枪", mode: "auto", damage: 13, fireRate: 1 / 12,
+  mag: 45, reserve: 225, reload: 1.3, range: 160, recoil: 0.02, kick: 0.005,
+  vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
+};
+const MINIGUN_DEF = {
+  id: "minigun", name: "加特林", mode: "auto", damage: 8, fireRate: 1 / 20,
+  mag: 120, reserve: 480, reload: 3.6, range: 120, recoil: 0.03, kick: 0.006,
+  vm: "rifle", sound: "minigun", tracer: 0xffb060,
+};
+const PRIMARY_DEFS = { smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF };
 
 // Spread tuning (radians): standing-still baseline + per-shot bloom.
 const SPREAD = {
   rifle: { base: 0.0012, perShot: 0.13 },
   smg: { base: 0.002, perShot: 0.09 },
   pistol: { base: 0.0015, perShot: 0.2 },
+  laser: { base: 0.0006, perShot: 0.05 }, // pinpoint energy weapon
+  minigun: { base: 0.004, perShot: 0.05 }, // sprays, but bloom builds slowly
 };
 
 export function createWeapons(camera, scene, world, player, hooks = {}, viewCamera = camera) {
@@ -105,7 +119,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
   // Called by the shell when the account's equipment changes.
   function applyLoadout(opts = {}) {
     loadout.reloadMul = opts.reloadMul ?? 1;
-    const targetDef = opts.primary === "smg_proto" ? SMG_DEF : DEFS[0];
+    const targetDef = PRIMARY_DEFS[opts.primary] || DEFS[0];
     const slot = weapons[0];
     if (slot.def !== targetDef) {
       slot.def = targetDef;
@@ -204,8 +218,11 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     spawnCasing();
     audio.shot(w.def.sound || w.def.id);
     const end = damageAt(w.def.range, w.def.damage, spread);
-    // brief bullet tracer (worlds that support it draw the line)
-    if (end && world.spawnPlayerTracer) world.spawnPlayerTracer(camera, end);
+    // brief bullet tracer (worlds that support it draw the line). Energy/heavy
+    // weapons recolour + (for the laser) thicken the beam.
+    if (end && world.spawnPlayerTracer) {
+      world.spawnPlayerTracer(camera, end, { color: w.def.tracer, beam: w.def.beam });
+    }
   }
 
   // Brass casing ejected to the right of the view — pure eye candy.

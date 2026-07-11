@@ -147,6 +147,32 @@ export const audio = {
       src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.21);
       return;
     }
+    if (kind === "laser") {
+      // energy "pew": a fast down-chirping square + a bright zap tail
+      const o = c.createOscillator(); o.type = "square";
+      o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(240, t + 0.11);
+      const g = c.createGain(); g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.2, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.13);
+      o.connect(g).connect(master()); o.start(t); o.stop(t + 0.14);
+      const o2 = c.createOscillator(); o2.type = "sawtooth";
+      o2.frequency.setValueAtTime(3000, t); o2.frequency.exponentialRampToValueAtTime(900, t + 0.06);
+      const g2 = c.createGain(); g2.gain.setValueAtTime(0.09, t); g2.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      o2.connect(g2).connect(master()); o2.start(t); o2.stop(t + 0.09);
+      return;
+    }
+    if (kind === "minigun") {
+      // heavy, short bassy chug: punchy low crack with a growly body
+      const src = c.createBufferSource(); src.buffer = noise(c, 0.08);
+      const f = c.createBiquadFilter(); f.type = "lowpass";
+      f.frequency.setValueAtTime(2600, t); f.frequency.exponentialRampToValueAtTime(300, t + 0.08);
+      const g = c.createGain(); g.gain.setValueAtTime(0.34, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+      src.connect(f).connect(g).connect(master()); src.start(t); src.stop(t + 0.09);
+      const o = c.createOscillator(); o.type = "square";
+      o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.07);
+      const og = c.createGain(); og.gain.setValueAtTime(0.42, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.09);
+      o.connect(og).connect(master()); o.start(t); o.stop(t + 0.1);
+      return;
+    }
     const pistol = kind === "pistol";
     const smg = kind === "smg";
     const dur = pistol ? 0.12 : smg ? 0.09 : 0.17;
