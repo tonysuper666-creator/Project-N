@@ -1,0 +1,8 @@
+# Ephemeral production state — see .claude/docs/directory-structure.md
+production/session-state/
+production/session-logs/
+
+# OS / editor cruft
+.DS_Store
+Thumbs.db
+*.swp
