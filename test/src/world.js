@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711007";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711007";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711008";
+import { rollLoot, LONDON_LOOT, PARIS_LOOT, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711008";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711007";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711007";
+import { audio } from "./audio.js?v=260711008";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711008";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -418,33 +418,40 @@ export function createWorld(scene, hooks = {}) {
   // London street corridor: a long avenue running along Z. The player deploys
   // at the near end (+RL) and pushes FORWARD toward the boss at the far end
   // (-RL). SHW is the walkable street half-width; buildings line both sides.
-  const AX = 260; // x offset of the area region from the base
+  // Two separate maps (副本) live at far-apart X offsets so their geometry
+  // never interferes (raycasts/collision are local and weapon range << the gap).
+  // `AX` is the ACTIVE map's offset — set per-build and again on deploy.
+  const AXL = 260;  // London offset
+  const AXP = 3000; // Paris offset (far away)
+  let AX = AXL;     // active map offset (mutable)
   const SHW = 12; // street half-width (walkable X)
   const RL = 128; // route half-length (Z)
-  const areaSpawn = new THREE.Vector3(AX, 0, RL - 12);
+  const areaSpawn = new THREE.Vector3(AXL, 0, RL - 12); // .set() on deploy
   const baseSpawn = new THREE.Vector3(0, 0, 9);
   const areaHalfX = SHW;
   const areaHalfZ = RL;
-  const extractPos = new THREE.Vector3(AX, 0, RL - 8);
+  const extractPos = new THREE.Vector3(AXL, 0, RL - 8); // .set() on deploy
   const enemies = [];
   const loot = [];
 
-  // store the base atmosphere so we can swap to the overcast London sky on deploy
+  // store the base atmosphere so we can swap skies on deploy
   const baseFog = scene.fog;
   const baseBg = scene.background;
-  const londonFog = new THREE.Fog(0x9aa2ac, 26, 165);
-  const londonBg = (() => {
+  function skyTex(c0, c1, c2) {
     const c = document.createElement("canvas"); c.width = 8; c.height = 256;
     const x = c.getContext("2d"); const g = x.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, "#868e9b"); g.addColorStop(0.5, "#a6adb6"); g.addColorStop(1, "#c6c9cb");
+    g.addColorStop(0, c0); g.addColorStop(0.5, c1); g.addColorStop(1, c2);
     x.fillStyle = g; x.fillRect(0, 0, 8, 256);
     return new THREE.CanvasTexture(c);
-  })();
-  // all forest geometry lives in this group so it can be hidden (not rendered)
-  // while the player is back in the base.
-  const areaGroup = new THREE.Group();
-  areaGroup.visible = false;
-  scene.add(areaGroup);
+  }
+  const londonFog = new THREE.Fog(0x9aa2ac, 26, 165);
+  const londonBg = skyTex("#868e9b", "#a6adb6", "#c6c9cb"); // overcast grey
+  const parisFog = new THREE.Fog(0xd8c9a8, 34, 200);
+  const parisBg = skyTex("#e6b96a", "#e9cf9a", "#cfe0e6"); // warm golden-hour sky
+  // each map's geometry lives in its own group (only the active one is shown)
+  const londonGroup = new THREE.Group(); londonGroup.visible = false; scene.add(londonGroup);
+  const parisGroup = new THREE.Group(); parisGroup.visible = false; scene.add(parisGroup);
+  let areaGroup = londonGroup; // current build target / active group
 
   // --- supply crates: openable once per run, burst into loot --------------
   const supplyCrates = [];
@@ -584,7 +591,9 @@ export function createWorld(scene, hooks = {}) {
 
   // --- stage gates: iron portcullises that seal the street until a stage's
   // enemies are cleared, forcing a fight-your-way-forward flow ---------------
-  const gates = [];
+  const londonGates = [];
+  const parisGates = [];
+  let gates = londonGates; // active map's gate list (set per-build & on deploy)
   const GATE_Z = [64, 12, -40, -84]; // one per non-boss stage
   const GATE_H = 5.2;
   function makeGate(z) {
@@ -612,7 +621,7 @@ export function createWorld(scene, hooks = {}) {
   }
   function resetGates() { for (let i = 0; i < gates.length; i += 1) { openGate(i); gates[i].group.position.y = 7; } }
 
-  (function buildLondon() {
+  function buildLondon() {
     const L = RL;
     // shared materials (real CC0 photo textures)
     const roadMat = new THREE.MeshStandardMaterial({ map: loadTex("asphalt", 4, 44), roughness: 0.93, metalness: 0.04 });
@@ -702,40 +711,6 @@ export function createWorld(scene, hooks = {}) {
         const t = new THREE.Mesh(new THREE.BoxGeometry(5, 28, 6), stoneMat); t.position.set(AX + ix, 14, z - 1); areaGroup.add(t);
         const sp = new THREE.Mesh(new THREE.ConeGeometry(3.6, 6, 4), stoneMat); sp.position.set(AX + ix, 31, z - 1); sp.rotation.y = Math.PI / 4; areaGroup.add(sp);
       }
-    })();
-
-    // --- EIFFEL TOWER: lattice iron tower looming over the plaza (right side) --
-    (function eiffelTower() {
-      const bx = AX + 34, bz = -10, H = 78; // base position + height
-      const iron = new THREE.MeshStandardMaterial({ color: 0x6b5b45, roughness: 0.6, metalness: 0.55 });
-      // four curved legs approximated by stacked, inward-leaning box segments
-      const legSpread = [11, 7, 4, 2.2, 1.1]; // half-spread at each level
-      const legY = [0, 20, 38, 55, H];
-      for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
-        for (let k = 0; k < legY.length - 1; k += 1) {
-          const y0 = legY[k], y1 = legY[k + 1];
-          const r0 = legSpread[k], r1 = legSpread[k + 1];
-          const x0 = bx + sx * r0, z0 = bz + sz * r0, x1 = bx + sx * r1, z1 = bz + sz * r1;
-          const mid = new THREE.Vector3((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
-          const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
-          const beam = new THREE.Mesh(new THREE.BoxGeometry(0.9, len, 0.9), iron);
-          beam.position.copy(mid);
-          beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize());
-          beam.castShadow = true; areaGroup.add(beam);
-        }
-      }
-      // platform rings + the great arch
-      for (const [py, pr] of [[20, 8], [38, 5], [55, 3]]) {
-        const ring = new THREE.Mesh(new THREE.BoxGeometry(pr * 2 + 1, 1.2, pr * 2 + 1), iron);
-        ring.position.set(bx, py, bz); areaGroup.add(ring);
-      }
-      const arch = new THREE.Mesh(new THREE.TorusGeometry(7, 0.6, 8, 20, Math.PI), iron);
-      arch.position.set(bx, 12, bz); arch.rotation.x = Math.PI; areaGroup.add(arch);
-      // upper taper + antenna
-      const upper = new THREE.Mesh(new THREE.ConeGeometry(2.2, 16, 6), iron); upper.position.set(bx, H - 4, bz); upper.castShadow = true; areaGroup.add(upper);
-      const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 8, 6), iron); ant.position.set(bx, H + 5, bz); areaGroup.add(ant);
-      const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe08a, emissive: 0xffb020, emissiveIntensity: 1.2 }));
-      beacon.position.set(bx, H + 9.2, bz); areaGroup.add(beacon);
     })();
 
     // --- street props -------------------------------------------------------
@@ -903,12 +878,219 @@ export function createWorld(scene, hooks = {}) {
     // stage gates spanning the street (open until each stage seals them)
     for (const z of GATE_Z) makeGate(z);
 
-    // extract pad at the near (spawn) end
+    // extract pad at the near (spawn) end (per-map interactable at this AX)
     areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
     const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, RL - 8); areaGroup.add(exLabel);
-  })();
-  interactables.push({ name: "撤离点", action: "extract", pos: extractPos, radius: 2.6 });
+    interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, RL - 8), radius: 2.6 });
+  }
 
+  // Reusable Eiffel Tower (lattice iron) added to the current areaGroup at (bx,bz).
+  function buildEiffel(bx, bz) {
+    const iron = new THREE.MeshStandardMaterial({ color: 0x6b5b45, roughness: 0.6, metalness: 0.55 });
+    const H = 82;
+    const legSpread = [12, 7.5, 4, 2.2, 1.1];
+    const legY = [0, 22, 40, 58, H];
+    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      for (let k = 0; k < legY.length - 1; k += 1) {
+        const y0 = legY[k], y1 = legY[k + 1], r0 = legSpread[k], r1 = legSpread[k + 1];
+        const x0 = bx + sx * r0, z0 = bz + sz * r0, x1 = bx + sx * r1, z1 = bz + sz * r1;
+        const len = Math.hypot(x1 - x0, y1 - y0, z1 - z0);
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(1.0, len, 1.0), iron);
+        beam.position.set((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2);
+        beam.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(x1 - x0, y1 - y0, z1 - z0).normalize());
+        beam.castShadow = true; areaGroup.add(beam);
+      }
+    }
+    for (const [py, pr] of [[22, 8.5], [40, 5], [58, 3]]) {
+      const ring = new THREE.Mesh(new THREE.BoxGeometry(pr * 2 + 1, 1.3, pr * 2 + 1), iron);
+      ring.position.set(bx, py, bz); areaGroup.add(ring);
+    }
+    const arch = new THREE.Mesh(new THREE.TorusGeometry(8, 0.7, 8, 20, Math.PI), iron);
+    arch.position.set(bx, 13, bz); arch.rotation.x = Math.PI; areaGroup.add(arch);
+    const upper = new THREE.Mesh(new THREE.ConeGeometry(2.2, 18, 6), iron); upper.position.set(bx, H - 5, bz); upper.castShadow = true; areaGroup.add(upper);
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 9, 6), iron); ant.position.set(bx, H + 6, bz); areaGroup.add(ant);
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.55, 10, 8), new THREE.MeshStandardMaterial({ color: 0xffe08a, emissive: 0xffb020, emissiveIntensity: 1.3 }));
+    beacon.position.set(bx, H + 10.5, bz); areaGroup.add(beacon);
+  }
+
+  // ===== PARIS map: a Haussmann boulevard with layered landmarks (Arc de
+  // Triomphe you pass under, a roundabout island you round, the Eiffel Tower
+  // at the finale) so it never reads as a bare straight line ================
+  function buildParis() {
+    const L = RL;
+    const cobbleMat = new THREE.MeshStandardMaterial({ map: loadTex("cobble", 5, 48), roughness: 0.95 });
+    const paveMat = new THREE.MeshStandardMaterial({ map: loadTex("pavement", 3, 46), roughness: 1 });
+    const limeMat = new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xe8dcc0, roughness: 0.85 });
+    const limeMat2 = new THREE.MeshStandardMaterial({ map: loadTex("limestone", 2, 3), color: 0xd8ccae, roughness: 0.85 });
+    const roofMat = new THREE.MeshStandardMaterial({ map: loadTex("roof", 3, 2), color: 0x5a6470, roughness: 0.8 });
+    const ironMat = new THREE.MeshStandardMaterial({ color: 0x20242c, roughness: 0.5, metalness: 0.7 });
+    const stoneMat = new THREE.MeshStandardMaterial({ map: loadTex("stone", 2, 3), roughness: 0.9 });
+    const winMat = new THREE.MeshStandardMaterial({ color: 0x2a3542, emissive: 0x0a1420, roughness: 0.3, metalness: 0.4 });
+
+    // cobblestone boulevard + limestone pavements
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(SHW * 2, L * 2 + 30), cobbleMat);
+    road.rotation.x = -Math.PI / 2; road.position.set(AX, 0, 0); road.receiveShadow = true;
+    areaGroup.add(road); solids.push(road);
+    for (const s of [-1, 1]) {
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(7, 0.2, L * 2 + 30), paveMat);
+      sw.position.set(AX + s * (SHW + 3.5), 0.1, 0); sw.receiveShadow = true; areaGroup.add(sw); solids.push(sw);
+    }
+
+    // Haussmann building: cream limestone, tall windows + wrought-iron balconies,
+    // mansard roof. Uniform-ish height gives the classic Parisian rhythm.
+    const innerX = SHW + 7, depth = 9;
+    function haussmann(cx, cz, w, faceDir, mat) {
+      const h = 19 + Math.random() * 4;
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, depth), mat);
+      b.position.set(cx, h / 2, cz); b.castShadow = true; b.receiveShadow = true; areaGroup.add(b); solids.push(b);
+      // ground-floor shopfront band (darker stone)
+      const shop = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 3, depth + 0.2), stoneMat); shop.position.set(cx, 1.5, cz); areaGroup.add(shop);
+      // mansard roof (angled slab)
+      const roof = new THREE.Mesh(new THREE.BoxGeometry(w, 3.4, depth), roofMat); roof.position.set(cx, h + 1.5, cz); roof.scale.set(0.86, 1, 0.86); roof.castShadow = true; areaGroup.add(roof);
+      // window + balcony rows on the street face
+      const fx = cx + faceDir * (depth / 2 + 0.05);
+      const cols = Math.max(3, Math.floor(w / 2.2));
+      for (let fl = 0; fl < 4; fl += 1) {
+        const wy = 4.5 + fl * 3.6;
+        for (let ccol = 0; ccol < cols; ccol += 1) {
+          const wx = -w / 2 + 1.2 + ccol * (w - 2.4) / Math.max(1, cols - 1);
+          const win = new THREE.Mesh(new THREE.BoxGeometry(0.05, 2.0, 0.9), winMat);
+          win.position.set(fx, wy, cz + wx); areaGroup.add(win);
+        }
+        // continuous balcony rail on the 2nd + 4th floors (Haussmann style)
+        if (fl === 1 || fl === 3) {
+          const rail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.5, w * 0.92), ironMat);
+          rail.position.set(fx + faceDir * 0.35, wy - 1.2, cz); areaGroup.add(rail);
+        }
+      }
+    }
+    const ARCH_Z = 40, ROND_Z = -14; // arch + roundabout positions along the route
+    for (const s of [-1, 1]) {
+      let z = -L + 20;
+      let alt = 0;
+      while (z < L - 8) {
+        const w = 11 + Math.random() * 4;
+        const mid = z + w / 2;
+        // leave frontages open around the arch, roundabout and river bank
+        const nearArch = Math.abs(mid - ARCH_Z) < 8;
+        const nearRond = Math.abs(mid - ROND_Z) < 14;
+        const nearRiver = s === 1 && mid > 78; // river runs along the right, far end
+        if (nearArch || nearRond || nearRiver || Math.random() < 0.08) { z += w + 5; continue; }
+        haussmann(AX + s * (innerX + depth / 2), mid, w, -s, (alt++ % 2) ? limeMat : limeMat2);
+        z += w + 0.8;
+      }
+    }
+
+    // --- Arc de Triomphe: monumental stone arch you pass UNDER ---------------
+    (function arc() {
+      const z = ARCH_Z, aw = 15, ah = 16, at = 7;
+      for (const sx of [-1, 1]) { // two piers (colliders); centre stays open
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(3.4, ah, at), stoneMat);
+        pier.position.set(AX + sx * (aw / 2), ah / 2, z); pier.castShadow = true; areaGroup.add(pier); solids.push(pier);
+        colliders.push(new THREE.Box3().setFromObject(pier));
+      }
+      const top = new THREE.Mesh(new THREE.BoxGeometry(aw + 3.4, 5, at + 1), stoneMat); top.position.set(AX, ah + 2.5, z); top.castShadow = true; areaGroup.add(top); solids.push(top);
+      const vault = new THREE.Mesh(new THREE.TorusGeometry(aw / 2 - 1.7, 1.4, 8, 16, Math.PI), stoneMat); vault.position.set(AX, ah - 2, z); vault.rotation.x = Math.PI; areaGroup.add(vault);
+      const attic = new THREE.Mesh(new THREE.BoxGeometry(aw + 4, 3, at + 1.6), stoneMat); attic.position.set(AX, ah + 6.5, z); areaGroup.add(attic);
+    })();
+
+    // --- roundabout island: fountain + monument you round -------------------
+    (function rond() {
+      const z = ROND_Z;
+      const base = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 3.9, 0.7, 24), stoneMat); base.position.set(AX, 0.35, z); areaGroup.add(base); solids.push(base); colliders.push(new THREE.Box3().setFromObject(base));
+      const water = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 0.2, 24), new THREE.MeshStandardMaterial({ color: 0x2f6f9c, transparent: true, opacity: 0.85, roughness: 0.2 })); water.position.set(AX, 0.7, z); areaGroup.add(water);
+      const col = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.8, 8, 12), stoneMat); col.position.set(AX, 4.4, z); col.castShadow = true; areaGroup.add(col);
+      const statue = new THREE.Mesh(new THREE.SphereGeometry(0.9, 12, 10), new THREE.MeshStandardMaterial({ color: 0xc9a94a, metalness: 0.7, roughness: 0.3, emissive: 0x5a4310, emissiveIntensity: 0.4 })); statue.position.set(AX, 9, z); areaGroup.add(statue);
+    })();
+
+    // --- Eiffel Tower at the finale (behind the boss) -----------------------
+    buildEiffel(AX, -L - 2);
+
+    // --- Seine + a stone bridge along the far right flank (decorative) ------
+    (function seine() {
+      const rx = AX + (SHW + 22);
+      const river = new THREE.Mesh(new THREE.PlaneGeometry(24, 70), new THREE.MeshStandardMaterial({ color: 0x35617f, transparent: true, opacity: 0.9, roughness: 0.25, metalness: 0.1 }));
+      river.rotation.x = -Math.PI / 2; river.position.set(rx, -0.05, 92); areaGroup.add(river);
+      const quay = new THREE.Mesh(new THREE.BoxGeometry(4, 2, 70), stoneMat); quay.position.set(AX + (SHW + 9), 1, 92); areaGroup.add(quay);
+      for (const bz of [80, 104]) { const arch = new THREE.Mesh(new THREE.TorusGeometry(3, 0.8, 8, 14, Math.PI), stoneMat); arch.position.set(rx, 1.5, bz); arch.rotation.x = Math.PI; areaGroup.add(arch); }
+    })();
+
+    // --- plane trees, café terraces, lamps, tricolor, metro sign ------------
+    const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5a4530, roughness: 0.9 });
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x5a8a3a, roughness: 0.85 });
+    function tree(x, z) {
+      const tr = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.34, 3.2, 8), trunkMat); tr.position.set(x, 1.6, z); tr.castShadow = true; areaGroup.add(tr); solids.push(tr);
+      const cr = new THREE.Mesh(new THREE.IcosahedronGeometry(1.9, 1), leafMat); cr.position.set(x, 4.2, z); cr.castShadow = true; areaGroup.add(cr);
+    }
+    const awnCols = [0x9c2b2b, 0x2b5f9c, 0x2b8f5f, 0x7a5aa0];
+    function cafe(x, z, s) {
+      const g = new THREE.Group(); g.position.set(x, 0, z);
+      const awnMat = new THREE.MeshStandardMaterial({ color: awnCols[(Math.random() * awnCols.length) | 0], roughness: 0.6 });
+      const awn = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.2, 4.5), awnMat);
+      awn.position.set(s * -0.2, 3, 0); g.add(awn);
+      for (let i = -1; i <= 1; i += 1) {
+        const table = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.9, 10), ironMat); table.position.set(0, 0.45, i * 1.4); g.add(table); solids.push(table);
+        for (const cz of [-0.5, 0.5]) { const chair = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.9, 0.4), ironMat); chair.position.set(s * -0.6, 0.45, i * 1.4 + cz); g.add(chair); }
+      }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x16181e, roughness: 0.5, metalness: 0.6 });
+    const glowMat = new THREE.MeshStandardMaterial({ color: 0xffe6a8, emissive: 0xffcf80, emissiveIntensity: 1.3, roughness: 0.4 });
+    function lamp(x, z) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.14, 5, 8), lampMat); pole.position.set(x, 2.5, z); pole.castShadow = true; areaGroup.add(pole); solids.push(pole);
+      for (const dx of [-0.5, 0.5]) { const h = new THREE.Mesh(new THREE.SphereGeometry(0.22, 10, 8), glowMat); h.position.set(x + dx, 5.1, z); areaGroup.add(h); }
+    }
+    // tricolor flag texture
+    const triMat = (() => {
+      const c = document.createElement("canvas"); c.width = 90; c.height = 60; const x = c.getContext("2d");
+      x.fillStyle = "#0055a4"; x.fillRect(0, 0, 30, 60); x.fillStyle = "#fff"; x.fillRect(30, 0, 30, 60); x.fillStyle = "#ef4135"; x.fillRect(60, 0, 30, 60);
+      return new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide });
+    })();
+    for (let z = -L + 26; z < L - 10; z += 16) { tree(AX - (SHW + 2), z); tree(AX + (SHW + 2), z + 8); lamp(AX - (SHW + 1.5), z + 4); }
+    for (const [ex, z, s] of [[-(SHW + 2.2), 60, -1], [SHW + 2.2, 4, 1], [-(SHW + 2.2), -46, -1], [SHW + 2.2, -74, 1]]) cafe(AX + ex, z, s);
+    for (const [ex, z, ry] of [[-(innerX - 0.2), 24, Math.PI / 2], [innerX - 0.2, -30, -Math.PI / 2], [-(innerX - 0.2), -62, Math.PI / 2]]) {
+      const f = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), triMat); f.position.set(AX + ex, 7, z); f.rotation.y = ry; areaGroup.add(f);
+    }
+
+    // parked cars forming chicanes you weave around
+    const carPaint = [0x9a9a9a, 0x2a2f3a, 0x6a1e1e, 0x27506a];
+    let ci = 0;
+    for (const [ex, z, ry] of [[6, 96, 0.5], [-6, 54, -0.5], [7, 10, 1.3], [-6, -36, 0.6], [6, -66, -1.1]]) {
+      const g = new THREE.Group(); g.position.set(AX + ex, 0, z); g.rotation.y = ry;
+      const paint = new THREE.MeshStandardMaterial({ color: carPaint[ci++ % carPaint.length], roughness: 0.4, metalness: 0.5 });
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.0, 4.0), paint); body.position.y = 0.7; body.castShadow = true; g.add(body); solids.push(body);
+      const cab = new THREE.Mesh(new THREE.BoxGeometry(1.8, 0.8, 2.0), paint); cab.position.set(0, 1.45, -0.1); g.add(cab); solids.push(cab);
+      const win = new THREE.Mesh(new THREE.BoxGeometry(1.84, 0.62, 1.8), winMat); win.position.set(0, 1.5, -0.1); g.add(win);
+      for (const wz of [-1.3, 1.3]) for (const wx of [-0.95, 0.95]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 0.3, 12), new THREE.MeshStandardMaterial({ color: 0x0e0e10 })); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.4, wz); g.add(wh); }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+
+    // concrete cover for firefights
+    for (const [ex, z] of [[-4, 80], [5, 26], [-6, 0], [4, -50], [-3, -80]]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 1.1), stoneMat); bar.position.set(AX + ex, 0.55, z); bar.castShadow = true; areaGroup.add(bar); solids.push(bar); colliders.push(new THREE.Box3().setFromObject(bar));
+    }
+
+    // ammo supply points (within reach), loot crates, gates, extract pad
+    function ammoPoint(z, s) {
+      const x = AX + s * (SHW - 1.6);
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.05, 1.05), new THREE.MeshStandardMaterial({ color: 0x3f4a2c, roughness: 0.7 })); crate.position.set(x, 0.62, z); crate.castShadow = true; areaGroup.add(crate); solids.push(crate);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.18, 1.09), new THREE.MeshStandardMaterial({ color: 0xffcf3a, emissive: 0xffb000, emissiveIntensity: 0.55 })); stripe.position.set(x, 0.95, z); areaGroup.add(stripe);
+      const lbl = makeLabel("弹药补给 [E]", "#ffd23a"); lbl.position.set(x, 1.8, z); areaGroup.add(lbl);
+      interactables.push({ name: "弹药补给", action: "ammo", pos: new THREE.Vector3(x, 0, z), radius: 3.0 });
+    }
+    ammoPoint(86, 1); ammoPoint(30, -1); ammoPoint(-24, 1); ammoPoint(-78, -1);
+    makeSupplyCrate(-(SHW - 1.6), 50, "pc1");
+    makeSupplyCrate(SHW - 1.6, -38, "pc2");
+    for (const z of GATE_Z) makeGate(z);
+    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
+    const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, RL - 8); areaGroup.add(exLabel);
+    interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, RL - 8), radius: 2.6 });
+  }
+
+  // Build both maps at their own offsets/groups (only one is shown at a time).
+  AX = AXL; areaGroup = londonGroup; gates = londonGates; buildLondon();
+  AX = AXP; areaGroup = parisGroup; gates = parisGates; buildParis();
+  AX = AXL; areaGroup = londonGroup; gates = londonGates; // default active = London
 
   // Articulated soldier: limbs hang from hip/shoulder pivots so they can be
   // swung procedurally while the enemy walks. Head parts are tagged for
@@ -1053,7 +1235,7 @@ export function createWorld(scene, hooks = {}) {
   // +Z toward -Z), spawns a squad AHEAD, and seals the street with `gate`
   // (an index into the gate list). The gate opens only when the squad is
   // cleared, so you must fight your way forward — no running to the boss.
-  const STAGES = [
+  const LONDON_STAGES = [
     { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 街口", sub: "清空敌人后闸门开启", zone: [70, 90],
       squad: [{ tier: "grunt", hp: 55, n: 4 }] },
     { triggerZ: 62, gate: 1, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [16, 56],
@@ -1063,8 +1245,22 @@ export function createWorld(scene, hooks = {}) {
     { triggerZ: -42, gate: 3, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-80, -48],
       squad: [{ tier: "elite2", hp: 320, n: 3 }, { tier: "heavy", hp: 520, n: 1 }] },
     { triggerZ: -86, gate: -1, name: "最终 · 大本钟", sub: "⚠ 最终首领现身", zone: [-100, -92], boss: true,
-      squad: [{ tier: "elite1", hp: 200, n: 2 }] },
+      bossName: "钢铁首领", bossHp: 4200, squad: [{ tier: "elite1", hp: 200, n: 2 }] },
   ];
+  // Paris is a tougher second campaign (more elites, bigger boss).
+  const PARIS_STAGES = [
+    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 林荫大道", sub: "清空敌人后闸门开启", zone: [70, 90],
+      squad: [{ tier: "grunt", hp: 80, n: 5 }] },
+    { triggerZ: 62, gate: 1, name: "第 2 区 · 凯旋门", sub: "穿过凯旋门，精英拦截", zone: [16, 56],
+      squad: [{ tier: "grunt", hp: 110, n: 5 }, { tier: "elite1", hp: 200, n: 2 }] },
+    { triggerZ: 10, gate: 2, name: "第 3 区 · 环岛广场", sub: "重装精英把守环岛", zone: [-36, 4],
+      squad: [{ tier: "grunt", hp: 150, n: 6 }, { tier: "elite2", hp: 340, n: 2 }] },
+    { triggerZ: -42, gate: 3, name: "第 4 区 · 塞纳河畔", sub: "重型单位增援", zone: [-80, -48],
+      squad: [{ tier: "elite2", hp: 420, n: 3 }, { tier: "heavy", hp: 680, n: 2 }] },
+    { triggerZ: -86, gate: -1, name: "最终 · 埃菲尔铁塔", sub: "⚠ 铁塔首领现身", zone: [-100, -92], boss: true,
+      bossName: "铁塔守卫者", bossHp: 6000, squad: [{ tier: "elite2", hp: 320, n: 2 }] },
+  ];
+  let STAGES = LONDON_STAGES; // active map's stages (set on deploy)
 
   function spawnSquad(entries, zone) {
     for (const e of entries) {
@@ -1080,13 +1276,11 @@ export function createWorld(scene, hooks = {}) {
     const st = STAGES[idx];
     if (!st) return;
     state.stage = idx + 1;
+    spawnSquad(st.squad, st.zone);
     if (st.boss) {
-      spawnSquad(st.squad, st.zone);
-      const boss = makeEnemy(0, -110, { boss: true, tier: "boss", hp: 4200, name: "钢铁首领" });
+      const boss = makeEnemy(0, -110, { boss: true, tier: "boss", hp: st.bossHp || 4200, name: st.bossName || "最终首领" });
       state.boss = boss;
       if (hooks.onBossSpawn) hooks.onBossSpawn(boss);
-    } else {
-      spawnSquad(st.squad, st.zone);
     }
     if (st.gate >= 0) { closeGate(st.gate); state.activeGate = st.gate; } // seal the way forward
     if (hooks.onStage) hooks.onStage(st.name, st.sub);
@@ -1205,8 +1399,9 @@ export function createWorld(scene, hooks = {}) {
     }
     tracers.push({ line, life: opts.beam ? 0.1 : 0.06, max: opts.beam ? 0.1 : 0.06 });
   }
+  let activeLoot = LONDON_LOOT; // active map's drop table (set on deploy)
   function spawnLoot(pos) {
-    const drop = rollLoot();
+    const drop = rollLoot(activeLoot);
     const item = ITEM_DB[drop.id];
     const c = new THREE.Color(RARITY_COLOR[item ? item.rarity : "common"]);
     const orb = new THREE.Mesh(new THREE.IcosahedronGeometry(0.22, 0), new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: 0.95, roughness: 0.4 }));
@@ -1235,33 +1430,66 @@ export function createWorld(scene, hooks = {}) {
       state.score += 1;
       if (ctrl.boss) {
         state.boss = null;
+        spawnBossExtract(); // #5: an extraction point appears at the boss arena
         if (hooks.onBossDefeated) hooks.onBossDefeated();
       }
       return true;
     }
     return false;
   }
-  function enterArea1() {
-    scene.fog = londonFog; scene.background = londonBg;
-    // flat overcast London daylight; the sun follows the player down the avenue
-    key.color.set(0xdfe4ea); key.intensity = 2.1;
-    key.position.set(AX + 20, 36, 30);
-    key.target.position.set(AX, 0, -20);
-    const sc = key.shadow.camera;
-    sc.left = -40; sc.right = 40; sc.top = 60; sc.bottom = -60; sc.far = 150;
-    sc.updateProjectionMatrix();
-    hemi.color.set(0xc4ccd6); hemi.groundColor.set(0x555a60); hemi.intensity = 1.15;
+
+  // Extra extraction pad spawned at the boss end after the boss dies, so you
+  // don't have to walk the whole route back.
+  let bossExtract = null;
+  function spawnBossExtract() {
+    clearBossExtract();
+    const z = -RL + 14;
+    const ring = place(new THREE.Mesh(new THREE.RingGeometry(1.3, 1.8, 40), mint), AX, 0.18, z).rotateX(-Math.PI / 2);
+    areaGroup.add(ring);
+    const lbl = makeLabel("撤离点 [E]", "#8effb0"); lbl.position.set(AX, 2.6, z); areaGroup.add(lbl);
+    const it = { name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, z), radius: 3.0 };
+    interactables.push(it);
+    bossExtract = { ring, lbl, it };
+  }
+  function clearBossExtract() {
+    if (!bossExtract) return;
+    areaGroup.remove(bossExtract.ring); areaGroup.remove(bossExtract.lbl);
+    const idx = interactables.indexOf(bossExtract.it); if (idx >= 0) interactables.splice(idx, 1);
+    bossExtract = null;
+  }
+
+  // Deploy into a specific map ("london" | "paris"). Sets the active offset,
+  // group, stages, gates and drop table, then resets the run.
+  const MAPS = {
+    london: { group: londonGroup, ax: AXL, stages: LONDON_STAGES, gates: londonGates, loot: LONDON_LOOT,
+      fog: londonFog, bg: londonBg, key: 0xdfe4ea, keyI: 2.1, hemiSky: 0xc4ccd6, hemiGround: 0x555a60, hemiI: 1.15 },
+    paris: { group: parisGroup, ax: AXP, stages: PARIS_STAGES, gates: parisGates, loot: PARIS_LOOT,
+      fog: parisFog, bg: parisBg, key: 0xffe7c0, keyI: 2.5, hemiSky: 0xe6d3b0, hemiGround: 0x6a5a44, hemiI: 1.2 },
+  };
+  function enterArea(mapId = "london") {
+    const m = MAPS[mapId] || MAPS.london;
+    // switch the active map wiring
+    AX = m.ax; areaGroup = m.group; STAGES = m.stages; gates = m.gates; activeLoot = m.loot;
+    areaSpawn.set(AX, 0, RL - 12);
+    extractPos.set(AX, 0, RL - 8);
+    // atmosphere + sun
+    scene.fog = m.fog; scene.background = m.bg;
+    key.color.set(m.key); key.intensity = m.keyI;
+    key.position.set(AX + 20, 36, 30); key.target.position.set(AX, 0, -20);
+    const sc = key.shadow.camera; sc.left = -40; sc.right = 40; sc.top = 60; sc.bottom = -60; sc.far = 150; sc.updateProjectionMatrix();
+    hemi.color.set(m.hemiSky); hemi.groundColor.set(m.hemiGround); hemi.intensity = m.hemiI;
     for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
-    areaGroup.visible = true;
-    state.inArea = true;
-    state.wave = 0;
-    state.stage = 0;
-    state.boss = null;
-    state.activeGate = -1;
+    londonGroup.visible = mapId === "london";
+    parisGroup.visible = mapId === "paris";
+    clearBossExtract();
+    state.inArea = true; state.wave = 0; state.stage = 0; state.boss = null; state.activeGate = -1;
     resetGates();
+    for (const e of enemies) scene.remove(e.group);
+    enemies.length = 0;
     clearLoot(); clearTracers();
     // no enemies up front — stage 1 triggers as the player advances forward
   }
+  function enterArea1() { enterArea("london"); } // back-compat
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
     key.color.set(0xfff4e0); key.intensity = 2.8;
@@ -1271,7 +1499,8 @@ export function createWorld(scene, hooks = {}) {
     sc.left = -28; sc.right = 28; sc.top = 28; sc.bottom = -28; sc.far = 70;
     sc.updateProjectionMatrix();
     hemi.color.set(0xcfe6ff); hemi.groundColor.set(0x35506a); hemi.intensity = 1.1;
-    areaGroup.visible = false;
+    londonGroup.visible = false; parisGroup.visible = false;
+    clearBossExtract();
     state.inArea = false;
     state.wave = 0;
     state.stage = 0;
@@ -1555,6 +1784,6 @@ export function createWorld(scene, hooks = {}) {
   return {
     ROOM, colliders, solids, targets, interactables, state, enemies, loot, supplyCrates,
     damageTarget, damageEnemy, explodeAt, getHittables, update, spawnPlayerTracer, openSupplyCrate,
-    enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
+    enterArea, enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
   };
 }

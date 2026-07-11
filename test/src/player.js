@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { audio } from "./audio.js?v=260711007";
+import { audio } from "./audio.js?v=260711008";
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
 

@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711007";
-import { createPlayer } from "./player.js?v=260711007";
-import { createWeapons } from "./weapons.js?v=260711007";
-import { createUI } from "./ui.js?v=260711007";
-import "./shell.js?v=260711007"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711007";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711007";
-import { audio } from "./audio.js?v=260711007";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711007";
-import { xpNeed } from "./account.js?v=260711007";
-import { createProfile } from "./profile.js?v=260711007";
+import { createWorld } from "./world.js?v=260711008";
+import { createPlayer } from "./player.js?v=260711008";
+import { createWeapons } from "./weapons.js?v=260711008";
+import { createUI } from "./ui.js?v=260711008";
+import "./shell.js?v=260711008"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711008";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711008";
+import { audio } from "./audio.js?v=260711008";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711008";
+import { xpNeed } from "./account.js?v=260711008";
+import { createProfile } from "./profile.js?v=260711008";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711007";
+const BUILD_VERSION = "260711008";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -303,7 +303,7 @@ function syncLoadout() {
 const ui = createUI({
   onResume: () => requestLock(),
   onDeploy: (area) => {
-    world.enterArea1();
+    world.enterArea(area && area.id === "paris" ? "paris" : "london");
     resetRunStats();
     player.state.pos.copy(world.areaSpawn);
     player.state.yaw = 0; // face down the avenue (toward -Z / the boss)
@@ -311,7 +311,7 @@ const ui = createUI({
     audio.setAmbient("base");
     const d = account.getData();
     if (d) { d.stats.runs += 1; account.save(d); }
-    ui.toast(`已抵达伦敦街区 · 沿街道向前推进，击败尽头的首领`);
+    ui.toast(`已抵达${area && area.id === "paris" ? "巴黎林荫大道" : "伦敦街区"} · 向前推进，击败尽头的首领`);
   },
   onBuyAmmo: (ammo) => weapons.addReserve(ammo.id, ammo.qty),
   onMissionsChanged: () => refreshMissionHUD(),

@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711007";
-import { ITEM_DB, LOOT_TABLE } from "./inventory.js?v=260711007";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711007";
-import { audio } from "./audio.js?v=260711007";
+import { account } from "./account.js?v=260711008";
+import { ITEM_DB, LONDON_LOOT, PARIS_LOOT } from "./inventory.js?v=260711008";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711008";
+import { audio } from "./audio.js?v=260711008";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -24,15 +24,9 @@ const WEAPON_EXCHANGES = [
   { id: "sniper", tag: "史诗", tagCls: "diff-普通",
     cost: [{ id: "alloy_core", qty: 2 }, { id: "scrap", qty: 10 }],
     desc: "反器材栓动狙击枪，右键开镜，单发伤害巨高、爆头秒杀。" },
-  { id: "rocket", tag: "史诗", tagCls: "diff-普通",
-    cost: [{ id: "alloy_core", qty: 3 }, { id: "data_chip", qty: 3 }],
-    desc: "单发火箭筒，高爆炸 AOE、弹速快下坠少，命中范围内群体伤害。" },
   { id: "minigun", tag: "传说", tagCls: "diff-高危",
     cost: [{ id: "alloy_core", qty: 4 }, { id: "scrap", qty: 12 }, { id: "data_chip", qty: 3 }],
     desc: "重型转膛机枪，持续开火逐渐提高转速与射速，单弹夹 100 发，换弹缓慢。" },
-  { id: "auto_rocket", tag: "传说", tagCls: "diff-高危",
-    cost: [{ id: "alloy_core", qty: 6 }, { id: "data_chip", qty: 4 }, { id: "scrap", qty: 10 }],
-    desc: "连发火箭筒，射速快、弹速慢下坠大，靠数量覆盖战场。" },
   { id: "laser_sniper", tag: "传说", tagCls: "diff-高危",
     cost: [{ id: "alloy_core", qty: 5 }, { id: "data_chip", qty: 5 }],
     desc: "单发式激光狙击（联狙），右键开镜，瞬发笔直光束、超高单发伤害。" },
@@ -42,8 +36,10 @@ const WEAPON_EXCHANGES = [
 const REVIVE_COST = [{ id: "scrap", qty: 6 }, { id: "data_chip", qty: 2 }];
 
 const AREAS = [
-  { id: "london", name: "行动 · 伦敦沦陷", diff: "普通", reqLevel: 1,
-    desc: "伦敦街区线性推进：沿街道一路向前，逐段刷新更强的敌人（蓝/紫色为精英），尽头大本钟前迎战最终首领「钢铁首领」。沿途有多个弹药补给点与掉落。击败首领后走回撤离点按 E 结算。" },
+  { id: "london", name: "行动 · 伦敦沦陷", diff: "普通", reqLevel: 1, loot: LONDON_LOOT,
+    desc: "伦敦街区线性推进：逐段刷新更强的敌人（蓝/紫色为精英），尽头大本钟前迎战首领「钢铁首领」。沿途多个弹药补给点。清关铁门开启，击败首领后原地生成撤离点。" },
+  { id: "paris", name: "行动 · 巴黎攻防", diff: "高危", reqLevel: 3, loot: PARIS_LOOT,
+    desc: "巴黎林荫大道：穿过凯旋门、绕过环岛广场、沿塞纳河推进，敌人更强更多。尽头埃菲尔铁塔前迎战「铁塔守卫者」。火箭筒/连发火箭筒为本图专属掉落。" },
 ];
 
 export function createUI(hooks = {}) {
@@ -241,9 +237,9 @@ export function createUI(hooks = {}) {
   }
 
   // Build the "possible drops" icon strip for an area (sorted rarest-first).
-  function dropStrip() {
+  function dropStrip(table = LONDON_LOOT) {
     const order = { legend: 0, epic: 1, rare: 2, common: 3 };
-    const ids = [...new Set(LOOT_TABLE.map((e) => e.id))]
+    const ids = [...new Set(table.map((e) => e.id))]
       .filter((id) => ITEM_DB[id])
       .sort((a, b) => (order[ITEM_DB[a].rarity] ?? 9) - (order[ITEM_DB[b].rarity] ?? 9));
     const cells = ids.map((id) => {
@@ -264,7 +260,7 @@ export function createUI(hooks = {}) {
       row.innerHTML = `<div class="rowText"><span class="rowName">${a.name}
         <em class="diff diff-${a.diff}">${a.diff}</em></span>
         <span class="rowDesc">${a.desc}</span>
-        ${dropStrip()}
+        ${dropStrip(a.loot)}
         <span class="rowReward">进入要求：等级 ${a.reqLevel}（当前 Lv.${lvl}）</span></div>
         <button class="rowBtn deploy">${meets ? "部署" : `需要等级 ${a.reqLevel}`}</button>`;
       const btn = row.querySelector(".rowBtn");

@@ -18,7 +18,10 @@
 - `concrete_wall_008` → `assets/textures/stone.jpg`（石材/地标外墙）
 - `asphalt_02` → `assets/textures/asphalt.jpg`（沥青路面）
 - `pavement_02` → `assets/textures/pavement.jpg`（人行道）
-- `cobblestone_floor_04` → `assets/textures/cobble.jpg`（石板路）
+- `cobblestone_floor_04` → `assets/textures/cobble.jpg`（石板路 / 巴黎鹅卵石）
+- `plastered_stone_wall` → `assets/textures/limestone.jpg`（巴黎奥斯曼石灰岩外墙）
+- `roof_tiles_14` → `assets/textures/roof.jpg`（巴黎芒萨尔屋顶）
+- `beige_wall_001` → `assets/textures/paris_wall.jpg`（米色墙面点缀）
 
 以上均为 Poly Haven CC0（Creative Commons Zero，公有领域）授权的真实照片贴图，合法可嵌入并离线使用。
 
