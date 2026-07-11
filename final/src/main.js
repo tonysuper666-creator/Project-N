@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711004";
-import { createPlayer } from "./player.js?v=260711004";
-import { createWeapons } from "./weapons.js?v=260711004";
-import { createUI } from "./ui.js?v=260711004";
-import "./shell.js?v=260711004"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711004";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711004";
-import { audio } from "./audio.js?v=260711004";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711004";
-import { xpNeed } from "./account.js?v=260711004";
-import { createProfile } from "./profile.js?v=260711004";
+import { createWorld } from "./world.js?v=260711005";
+import { createPlayer } from "./player.js?v=260711005";
+import { createWeapons } from "./weapons.js?v=260711005";
+import { createUI } from "./ui.js?v=260711005";
+import "./shell.js?v=260711005"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711005";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711005";
+import { audio } from "./audio.js?v=260711005";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711005";
+import { xpNeed } from "./account.js?v=260711005";
+import { createProfile } from "./profile.js?v=260711005";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711004";
+const BUILD_VERSION = "260711005";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -100,6 +100,25 @@ const world = createWorld(scene, {
   onWaveSpawn(wave, count, hasBoss) {
     if (wave > 1) ui.toast(`第 ${wave} 波来袭 · ${count} 名敌人${hasBoss ? " · ⚠ 重型单位出现" : ""}`);
   },
+  // linear London campaign: a stage banner as you push into each zone
+  onStage(name, sub) {
+    showStageBanner(name, sub);
+    audio.levelup();
+  },
+  onBossSpawn(boss) {
+    bossName.textContent = boss.name || "最终首领";
+    bossBar.classList.add("show");
+    ui.toast("⚠ 最终首领出现 · 击败它以完成行动");
+  },
+  onBossDefeated() {
+    bossBar.classList.remove("show");
+    const bonus = 1500;
+    const ups = account.award(bonus, 300);
+    runStats.coins += bonus; runStats.xp += 300;
+    if (ups > 0) celebrateLevelUp();
+    showStageBanner("行动完成 · 首领已击败", "回到撤离点 [E] 结算收获");
+    ui.toast(`首领已击败 · 奖励 ◈${bonus}！返回撤离点结算`);
+  },
 });
 const player = createPlayer(camera, world);
 
@@ -125,6 +144,10 @@ const weaponEl = document.getElementById("weapon");
 const sprintEl = document.getElementById("sprint");
 const promptEl = document.getElementById("prompt");
 const scopeEl = document.getElementById("scopeOverlay");
+const bossBar = document.getElementById("bossBar");
+const bossName = document.getElementById("bossName");
+const bossFill = document.getElementById("bossFill");
+const stageBanner = document.getElementById("stageBanner");
 
 // Toggle the sniper scope overlay (and hide the crosshair while scoped).
 let scopeOn = false;
@@ -133,6 +156,27 @@ function applyScope(on) {
   scopeOn = on;
   if (scopeEl) scopeEl.classList.toggle("show", on);
   if (crosshair) crosshair.style.visibility = on ? "hidden" : "";
+}
+
+// Transient stage/route banner at the top of the screen.
+let stageBannerTimer = null;
+function showStageBanner(title, sub) {
+  if (!stageBanner) return;
+  stageBanner.innerHTML = `${title}${sub ? `<span class="sb-sub">${sub}</span>` : ""}`;
+  stageBanner.classList.add("show");
+  if (stageBannerTimer) clearTimeout(stageBannerTimer);
+  stageBannerTimer = setTimeout(() => stageBanner.classList.remove("show"), 3400);
+}
+
+// Keep the boss health bar in sync while a boss is alive.
+function updateBossBar() {
+  const b = world.state.boss;
+  if (b && b.alive) {
+    if (!bossBar.classList.contains("show")) bossBar.classList.add("show");
+    bossFill.style.width = `${Math.max(0, (b.health / b.maxHealth) * 100)}%`;
+  } else if (bossBar.classList.contains("show")) {
+    bossBar.classList.remove("show");
+  }
 }
 
 // In-game character / backpack panel (toggle with B).
@@ -214,11 +258,13 @@ const KILL_XP = 20;
 function onEnemyKill(extra = {}) {
   const d = account.getData();
   if (d) { d.stats.kills += 1; account.save(d); }
-  const bounty = extra.heavy ? KILL_COINS * 4 : KILL_COINS;
-  const xp = extra.heavy ? KILL_XP * 3 : KILL_XP;
+  const mult = extra.boss ? 20 : extra.heavy ? 4 : extra.elite ? 2 : 1;
+  const bounty = KILL_COINS * mult;
+  const xp = KILL_XP * (extra.boss ? 15 : extra.heavy ? 3 : extra.elite ? 2 : 1);
   const ups = account.award(bounty, xp);
   runStats.kills += 1; runStats.coins += bounty; runStats.xp += xp;
-  pushKillFeed(`${extra.headshot ? "☠ 爆头 " : ""}击杀 ${extra.heavy ? "重型单位 +◈" + bounty : "训练兵 +◈" + bounty}`);
+  const label = extra.boss ? "首领" : extra.heavy ? "重型单位" : extra.elite ? "精英" : "敌兵";
+  pushKillFeed(`${extra.headshot ? "☠ 爆头 " : ""}击杀 ${label} +◈${bounty}`);
   if (ups > 0) celebrateLevelUp();
   for (const m of recordProgress("kill")) {
     ui.toast(`任务目标达成：${m.name} · 回任务官领取奖励`);
@@ -256,11 +302,12 @@ const ui = createUI({
     world.enterArea1();
     resetRunStats();
     player.state.pos.copy(world.areaSpawn);
+    player.state.yaw = 0; // face down the avenue (toward -Z / the boss)
     player.state.vy = 0;
-    audio.setAmbient("forest");
+    audio.setAmbient("base");
     const d = account.getData();
     if (d) { d.stats.runs += 1; account.save(d); }
-    ui.toast(`已进入 ${area.name} · 走到撤离点按 E 返回`);
+    ui.toast(`已抵达伦敦街区 · 沿街道向前推进，击败尽头的首领`);
   },
   onBuyAmmo: (ammo) => weapons.addReserve(ammo.id, ammo.qty),
   onMissionsChanged: () => refreshMissionHUD(),
@@ -682,12 +729,15 @@ function drawMinimap() {
     mmCtx.fill();
   };
   if (inArea) {
-    dot(world.areaSpawn.x, 8, "#6affc0", 5); // extract pad
+    const ep = world.extractPos || world.areaSpawn;
+    dot(ep.x, ep.z, "#6affc0", 5); // extract pad
+    for (const it of world.interactables) if (it.action === "ammo") dot(it.pos.x, it.pos.z, "#ffd23a", 3); // supply points
     for (const c of world.supplyCrates) if (!c.opened) dot(c.pos.x, c.pos.z, "#46dfa0", 3);
     for (const l of world.loot) dot(l.orb.position.x, l.orb.position.z, "#ffd23f", 2.4);
     for (const e of world.enemies) {
       if (!e.alive) continue;
-      dot(e.group.position.x, e.group.position.z, e.heavy ? "#ff5030" : "#ff8a6a", e.heavy ? 4.4 : 3);
+      const col = e.boss ? "#ffb020" : e.tier === "elite2" ? "#b06bff" : e.elite ? "#4aa3ff" : e.heavy ? "#ff5030" : "#ff8a6a";
+      dot(e.group.position.x, e.group.position.z, col, e.boss ? 6 : e.heavy || e.elite ? 4.4 : 3);
     }
   } else {
     for (const it of world.interactables) {
@@ -754,6 +804,7 @@ function animate(now) {
   // zoomed aim slows the look for precision; scope overlay + hidden crosshair
   player.state.aimSensMul = ads.aiming ? (ads.scope ? 0.35 : 0.62) : 1;
   applyScope(ads.scope);
+  updateBossBar();
 
   composer.render();
   // draw the view-model on top with a fresh depth buffer (no world clipping)

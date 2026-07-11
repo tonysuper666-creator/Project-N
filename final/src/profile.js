@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { account, xpNeed } from "./account.js?v=260711004";
-import { ITEM_DB } from "./inventory.js?v=260711004";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711004";
+import { account, xpNeed } from "./account.js?v=260711005";
+import { ITEM_DB } from "./inventory.js?v=260711005";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711005";
 
 // Player profile screen: a rotating 3D character wearing the equipped loadout
 // on the left, account stats + equipment on the right. Runs its own small

@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711004";
-import { audio } from "./audio.js?v=260711004";
+import { createViewmodel } from "./viewmodel.js?v=260711005";
+import { audio } from "./audio.js?v=260711005";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -219,7 +219,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       const applied = isHead ? damage * 2 : damage;
       const ctrl = obj.userData.enemy;
       const killed = world.damageEnemy(ctrl, applied);
-      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy });
+      if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
       if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, applied, isHead);
     } else if (obj.userData && typeof obj.userData.onHit === "function") {
       obj.userData.onHit(damage); // e.g. a networked opponent in the 1v1 mode
@@ -249,7 +249,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
         const isHead = obj.userData.part === "head";
         const ctrl = obj.userData.enemy;
         const killed = world.damageEnemy(ctrl, isHead ? dmg * 2 : dmg);
-        if (killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { headshot: isHead, heavy: !!ctrl.heavy });
+        if (killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
       } else if (obj.userData && obj.userData.type === "target") {
         world.damageTarget(obj, dmg);
       } else if (obj.userData && typeof obj.userData.onHit === "function") {

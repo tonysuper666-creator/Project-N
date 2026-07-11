@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711004";
-import { ITEM_DB } from "./inventory.js?v=260711004";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711004";
-import { audio } from "./audio.js?v=260711004";
+import { account } from "./account.js?v=260711005";
+import { ITEM_DB } from "./inventory.js?v=260711005";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711005";
+import { audio } from "./audio.js?v=260711005";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -36,8 +36,8 @@ const WEAPON_EXCHANGES = [
 const REVIVE_COST = [{ id: "scrap", qty: 6 }, { id: "data_chip", qty: 2 }];
 
 const AREAS = [
-  { id: "area1", name: "AREA 1 · 密林前哨", diff: "普通", reqLevel: 1,
-    desc: "针叶林作战区，银装训练兵波次进攻，每 3 波出现重型单位（必掉 3 件战利品）。击杀掉落材料，小概率掉成品武器；走到撤离点按 E 返回。" },
+  { id: "london", name: "行动 · 伦敦沦陷", diff: "普通", reqLevel: 1,
+    desc: "伦敦街区线性推进：沿街道一路向前，逐段刷新更强的敌人（蓝/紫色为精英），尽头大本钟前迎战最终首领「钢铁首领」。沿途有多个弹药补给点与掉落。击败首领后走回撤离点按 E 结算。" },
 ];
 
 export function createUI(hooks = {}) {

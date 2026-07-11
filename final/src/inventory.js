@@ -1,4 +1,4 @@
-import { account } from "./account.js?v=260711004";
+import { account } from "./account.js?v=260711005";
 
 // Item database. Equip-able types: primary / secondary / melee / armor / gear.
 // "material" items are non-equippable (stackable resources / consumables).

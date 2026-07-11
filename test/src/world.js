@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711004";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711004";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711005";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711005";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711004";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711004";
+import { audio } from "./audio.js?v=260711005";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711005";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -415,23 +415,28 @@ export function createWorld(scene, hooks = {}) {
 
   // =====================================================================
   // AREA 1 — procedural FOREST (built far away; player teleports in).
+  // London street corridor: a long avenue running along Z. The player deploys
+  // at the near end (+RL) and pushes FORWARD toward the boss at the far end
+  // (-RL). SHW is the walkable street half-width; buildings line both sides.
   const AX = 260; // x offset of the area region from the base
-  const FH = 55; // forest half-extent
-  const areaSpawn = new THREE.Vector3(AX, 0, 0);
+  const SHW = 11; // street half-width (walkable X)
+  const RL = 128; // route half-length (Z)
+  const areaSpawn = new THREE.Vector3(AX, 0, RL - 12);
   const baseSpawn = new THREE.Vector3(0, 0, 9);
-  const areaHalfX = FH;
-  const areaHalfZ = FH;
+  const areaHalfX = SHW;
+  const areaHalfZ = RL;
+  const extractPos = new THREE.Vector3(AX, 0, RL - 8);
   const enemies = [];
   const loot = [];
 
-  // store the base atmosphere so we can swap to a forest sky on deploy
+  // store the base atmosphere so we can swap to the overcast London sky on deploy
   const baseFog = scene.fog;
   const baseBg = scene.background;
-  const forestFog = new THREE.Fog(0xc3d8cf, 22, 98);
-  const forestBg = (() => {
+  const londonFog = new THREE.Fog(0x9aa2ac, 26, 165);
+  const londonBg = (() => {
     const c = document.createElement("canvas"); c.width = 8; c.height = 256;
     const x = c.getContext("2d"); const g = x.createLinearGradient(0, 0, 0, 256);
-    g.addColorStop(0, "#5e93c8"); g.addColorStop(0.55, "#9fc2d6"); g.addColorStop(1, "#ccd9cf");
+    g.addColorStop(0, "#868e9b"); g.addColorStop(0.5, "#a6adb6"); g.addColorStop(1, "#c6c9cb");
     x.fillStyle = g; x.fillRect(0, 0, 8, 256);
     return new THREE.CanvasTexture(c);
   })();
@@ -440,23 +445,6 @@ export function createWorld(scene, hooks = {}) {
   const areaGroup = new THREE.Group();
   areaGroup.visible = false;
   scene.add(areaGroup);
-
-  // --- Area 1 layout: points of interest (positions relative to AX) -------
-  const POI = {
-    compound: { x: 22, z: -20, w: 22, d: 18 }, // ruined outpost
-    pod: { x: -26, z: 18, r: 8 }, // crashed drop pod
-    pond: { x: -12, z: -28, rx: 7, rz: 5 },
-  };
-  // keep spawn/extract clearings and POI footprints free of vegetation
-  function isBlockedRel(ex, ez) {
-    if (Math.hypot(ex, ez) < 6) return true; // spawn clearing
-    if (Math.hypot(ex, ez - 8) < 3.5) return true; // extract pad
-    const c = POI.compound;
-    if (ex > c.x - c.w / 2 - 1.5 && ex < c.x + c.w / 2 + 1.5 && ez > c.z - c.d / 2 - 1.5 && ez < c.z + c.d / 2 + 1.5) return true;
-    if (Math.hypot(ex - POI.pod.x, ez - POI.pod.z) < POI.pod.r) return true;
-    if (Math.hypot((ex - POI.pond.x) / POI.pond.rx, (ez - POI.pond.z) / POI.pond.rz) < 1.35) return true;
-    return false;
-  }
 
   // --- supply crates: openable once per run, burst into loot --------------
   const supplyCrates = [];
@@ -487,63 +475,89 @@ export function createWorld(scene, hooks = {}) {
     return true;
   }
 
-  function grassTexture() {
-    const c = document.createElement("canvas"); c.width = 256; c.height = 256;
-    const x = c.getContext("2d");
-    x.fillStyle = "#557f3a"; x.fillRect(0, 0, 256, 256);
-    // mottled moss/dry patches for large-scale variation
-    for (let i = 0; i < 26; i += 1) {
-      const g = x.createRadialGradient(Math.random() * 256, Math.random() * 256, 4, Math.random() * 256, Math.random() * 256, 26 + Math.random() * 40);
-      const dry = Math.random() < 0.4;
-      g.addColorStop(0, dry ? "rgba(122,124,58,0.35)" : "rgba(60,104,44,0.4)");
-      g.addColorStop(1, "rgba(0,0,0,0)");
-      x.fillStyle = g; x.fillRect(0, 0, 256, 256);
-    }
-    for (let i = 0; i < 5200; i += 1) {
-      const g = 90 + Math.random() * 70;
-      x.fillStyle = `rgba(${50 + Math.random() * 40 | 0},${g | 0},${45 + Math.random() * 35 | 0},0.5)`;
-      x.fillRect(Math.random() * 256, Math.random() * 256, 2, 3);
-    }
-    const t = new THREE.CanvasTexture(c); t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(44, 44);
+  // --- London photo textures (CC0 Poly Haven, committed under assets/) ------
+  const texLoader = new THREE.TextureLoader();
+  const texCache = {};
+  function loadTex(name, rx, ry) {
+    const t = texLoader.load(`./assets/textures/${name}.jpg`);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(rx, ry);
+    if ("colorSpace" in t) t.colorSpace = THREE.SRGBColorSpace;
+    else t.encoding = 3001; // sRGBEncoding fallback
+    texCache[name] = t;
     return t;
   }
 
-  // paint a flat vertex color onto a geometry so tree parts can be merged
-  // into one instanced mesh
-  function tintGeo(geo, hex) {
-    const g = geo.index ? geo.toNonIndexed() : geo;
-    const col = new THREE.Color(hex);
-    const n = g.attributes.position.count;
-    const arr = new Float32Array(n * 3);
-    for (let i = 0; i < n; i += 1) { arr[i * 3] = col.r; arr[i * 3 + 1] = col.g; arr[i * 3 + 2] = col.b; }
-    g.setAttribute("color", new THREE.BufferAttribute(arr, 3));
-    return g;
-  }
-  // one merged geometry per tree species (instanced below)
-  function treeGeometry(kind) {
-    const parts = [];
-    if (kind === 0) { // conifer
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.14, 0.3, 2.4, 7).translate(0, 1.2, 0), 0x4f3a26));
-      for (let i = 0; i < 4; i += 1) {
-        parts.push(tintGeo(new THREE.ConeGeometry(1.7 - i * 0.34, 1.7, 8).translate(0, 2.1 + i * 0.95, 0), i % 2 ? 0x2b562e : 0x33643a));
+  // Facade with rows of sash windows drawn over a transparent canvas — placed
+  // just in front of a brick building so lit windows read as a London terrace.
+  function facadeTexture(cols, rows) {
+    const cw = cols * 34, ch = rows * 46;
+    const c = document.createElement("canvas"); c.width = cw; c.height = ch;
+    const x = c.getContext("2d");
+    x.clearRect(0, 0, cw, ch);
+    for (let r = 0; r < rows; r += 1) {
+      for (let cc = 0; cc < cols; cc += 1) {
+        const lit = Math.random() < 0.34;
+        const px = cc * 34 + 8, py = r * 46 + 9, ww = 18, hh = 28;
+        x.fillStyle = lit
+          ? `rgba(255,${(205 + Math.random() * 40) | 0},${(150 + Math.random() * 45) | 0},0.96)`
+          : `rgba(${(24 + Math.random() * 12) | 0},${(30 + Math.random() * 12) | 0},${(40 + Math.random() * 14) | 0},0.92)`;
+        x.fillRect(px, py, ww, hh);
+        x.strokeStyle = "rgba(236,238,240,0.85)"; x.lineWidth = 2; // pale window frames
+        x.strokeRect(px, py, ww, hh);
+        x.beginPath();
+        x.moveTo(px + ww / 2, py); x.lineTo(px + ww / 2, py + hh);
+        x.moveTo(px, py + hh / 2); x.lineTo(px + ww, py + hh / 2); x.stroke();
       }
-    } else if (kind === 1) { // broadleaf
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.16, 0.32, 2.6, 7).translate(0, 1.3, 0), 0x53412c));
-      for (const [dx, dy, dz, r] of [[0, 2.9, 0, 1.5], [0.9, 2.6, 0.2, 1.0], [-0.8, 2.7, -0.3, 1.05], [0.1, 3.5, 0.3, 0.95], [-0.2, 3.0, 0.8, 0.85]]) {
-        parts.push(tintGeo(new THREE.IcosahedronGeometry(r, 1).translate(dx, dy, dz), 0x46792f));
-      }
-    } else if (kind === 2) { // birch: pale trunk, airy light foliage
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.1, 0.16, 3.2, 7).translate(0, 1.6, 0), 0xd9d9cd));
-      for (const [dx, dy, dz, r] of [[0, 3.5, 0, 1.05], [0.6, 3.0, 0.3, 0.7], [-0.55, 3.2, -0.25, 0.75]]) {
-        parts.push(tintGeo(new THREE.IcosahedronGeometry(r, 1).translate(dx, dy, dz), 0x8fbe62));
-      }
-    } else { // dead snag: bare trunk + skeletal branches
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.09, 0.24, 3.4, 6).translate(0, 1.7, 0), 0x4a3828));
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.045, 0.07, 1.5, 5).rotateZ(0.85).translate(0.55, 2.6, 0.1), 0x4a3828));
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.04, 0.06, 1.2, 5).rotateZ(-0.95).translate(-0.45, 2.2, -0.1), 0x4a3828));
-      parts.push(tintGeo(new THREE.CylinderGeometry(0.035, 0.05, 1.0, 5).rotateX(0.9).translate(0, 3.0, 0.4), 0x4a3828));
     }
-    return mergeGeometries(parts);
+    return new THREE.CanvasTexture(c);
+  }
+
+  // A clock face (Big Ben): cream dial, roman ticks, hands.
+  function clockTexture() {
+    const s = 256; const c = document.createElement("canvas"); c.width = c.height = s;
+    const x = c.getContext("2d"); const cx = s / 2, cy = s / 2, R = s * 0.45;
+    x.fillStyle = "#efe7cf"; x.beginPath(); x.arc(cx, cy, R, 0, Math.PI * 2); x.fill();
+    x.strokeStyle = "#3a3122"; x.lineWidth = 8; x.stroke();
+    x.strokeStyle = "#2a241a"; x.lineWidth = 4;
+    for (let i = 0; i < 12; i += 1) {
+      const a = (i / 12) * Math.PI * 2;
+      x.beginPath();
+      x.moveTo(cx + Math.cos(a) * R * 0.82, cy + Math.sin(a) * R * 0.82);
+      x.lineTo(cx + Math.cos(a) * R * 0.95, cy + Math.sin(a) * R * 0.95); x.stroke();
+    }
+    x.lineCap = "round";
+    x.strokeStyle = "#20180f"; x.lineWidth = 9; // hour hand
+    x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(-1.1) * R * 0.5, cy + Math.sin(-1.1) * R * 0.5); x.stroke();
+    x.lineWidth = 6; // minute hand
+    x.beginPath(); x.moveTo(cx, cy); x.lineTo(cx + Math.cos(1.6) * R * 0.78, cy + Math.sin(1.6) * R * 0.78); x.stroke();
+    return new THREE.CanvasTexture(c);
+  }
+
+  // Union Jack banner texture.
+  function unionJackTexture() {
+    const w = 128, h = 80; const c = document.createElement("canvas"); c.width = w; c.height = h;
+    const x = c.getContext("2d");
+    x.fillStyle = "#0a2472"; x.fillRect(0, 0, w, h); // navy field
+    x.strokeStyle = "#fff"; x.lineWidth = 16; // white diagonals
+    x.beginPath(); x.moveTo(0, 0); x.lineTo(w, h); x.moveTo(w, 0); x.lineTo(0, h); x.stroke();
+    x.strokeStyle = "#c8102e"; x.lineWidth = 7; // red diagonals
+    x.beginPath(); x.moveTo(0, 0); x.lineTo(w, h); x.moveTo(w, 0); x.lineTo(0, h); x.stroke();
+    x.fillStyle = "#fff"; x.fillRect(w / 2 - 12, 0, 24, h); x.fillRect(0, h / 2 - 12, w, 24); // white cross
+    x.fillStyle = "#c8102e"; x.fillRect(w / 2 - 6, 0, 12, h); x.fillRect(0, h / 2 - 6, w, 12); // red cross
+    return new THREE.CanvasTexture(c);
+  }
+
+  // Underground roundel sign texture (red ring + blue bar + UNDERGROUND).
+  function roundelTexture() {
+    const s = 128; const c = document.createElement("canvas"); c.width = s; c.height = s;
+    const x = c.getContext("2d"); x.clearRect(0, 0, s, s);
+    x.strokeStyle = "#e1251b"; x.lineWidth = 14;
+    x.beginPath(); x.arc(s / 2, s / 2, 40, 0, Math.PI * 2); x.stroke();
+    x.fillStyle = "#0a2472"; x.fillRect(8, s / 2 - 13, s - 16, 26);
+    x.fillStyle = "#fff"; x.font = "bold 15px sans-serif"; x.textAlign = "center"; x.textBaseline = "middle";
+    x.fillText("UNDERGROUND", s / 2, s / 2);
+    return new THREE.CanvasTexture(c);
   }
   // instanced mesh from a transform list ({x,y,z,s|sx..,ry,tint})
   function instancedFrom(geo, mat, items, opts = {}) {
@@ -568,298 +582,180 @@ export function createWorld(scene, hooks = {}) {
   let waterMat = null;
   let sporesRef = null;
 
-  (function buildForest() {
-    // GROUND + dirt paths between the POIs
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(FH * 2 + 30, FH * 2 + 30), new THREE.MeshStandardMaterial({ map: grassTexture(), roughness: 1, metalness: 0 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.set(AX, 0, 0); ground.receiveShadow = true;
-    areaGroup.add(ground); solids.push(ground);
-    const pathMat = new THREE.MeshStandardMaterial({ color: 0x6a5238, roughness: 1 });
-    function dirtPath(x1, z1, x2, z2, w) {
-      const len = Math.hypot(x2 - x1, z2 - z1);
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(len, w), pathMat);
-      m.rotation.x = -Math.PI / 2;
-      m.rotation.z = -Math.atan2(z2 - z1, x2 - x1);
-      m.position.set(AX + (x1 + x2) / 2, 0.015, (z1 + z2) / 2);
-      m.receiveShadow = true;
-      areaGroup.add(m);
+  (function buildLondon() {
+    const L = RL;
+    // shared materials (real CC0 photo textures)
+    const roadMat = new THREE.MeshStandardMaterial({ map: loadTex("asphalt", 4, 44), roughness: 0.93, metalness: 0.04 });
+    const paveMat = new THREE.MeshStandardMaterial({ map: loadTex("pavement", 3, 46), roughness: 1 });
+    const brickA = new THREE.MeshStandardMaterial({ map: loadTex("brick_red", 2, 3), roughness: 0.95 });
+    const brickB = new THREE.MeshStandardMaterial({ map: loadTex("brick_wall", 2, 3), roughness: 0.95 });
+    const stoneMat = new THREE.MeshStandardMaterial({ map: loadTex("stone", 2, 3), roughness: 0.9 });
+    const brickMats = [brickA, brickB, brickA, stoneMat];
+
+    // ROAD down the middle (wet asphalt)
+    const road = new THREE.Mesh(new THREE.PlaneGeometry(SHW * 2, L * 2 + 30), roadMat);
+    road.rotation.x = -Math.PI / 2; road.position.set(AX, 0, 0); road.receiveShadow = true;
+    areaGroup.add(road); solids.push(road);
+    // dashed centre line
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xd8d2bc, roughness: 0.85 });
+    for (let z = -L + 4; z < L; z += 6) {
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(0.3, 2.6), lineMat);
+      m.rotation.x = -Math.PI / 2; m.position.set(AX, 0.02, z); areaGroup.add(m);
     }
-    dirtPath(0, 0, POI.compound.x - 6, POI.compound.z + 6, 2.4); // spawn -> outpost
-    dirtPath(0, 0, POI.pod.x + 5, POI.pod.z - 4, 2.2); // spawn -> pod
-    dirtPath(0, 0, POI.pond.x + 4, POI.pond.z + 4, 1.8); // spawn -> pond
-    for (let i = 0; i < 12; i += 1) { // loose dirt patches
-      const p = new THREE.Mesh(new THREE.CircleGeometry(2 + Math.random() * 4, 16), pathMat);
-      p.rotation.x = -Math.PI / 2;
-      p.position.set(AX + (Math.random() - 0.5) * FH * 1.6, 0.01, (Math.random() - 0.5) * FH * 1.6);
-      areaGroup.add(p);
+    // raised pavements + kerbs on both sides
+    for (const s of [-1, 1]) {
+      const sw = new THREE.Mesh(new THREE.BoxGeometry(7, 0.2, L * 2 + 30), paveMat);
+      sw.position.set(AX + s * (SHW + 3.5), 0.1, 0); sw.receiveShadow = true;
+      areaGroup.add(sw); solids.push(sw);
     }
 
-    // POND — still water, sandy rim, reeds
-    waterMat = new THREE.MeshStandardMaterial({ color: 0x3a7a9c, emissive: 0x14405c, emissiveIntensity: 0.35, transparent: true, opacity: 0.88, roughness: 0.15, metalness: 0.1 });
-    const water = new THREE.Mesh(new THREE.CircleGeometry(1, 40), waterMat);
-    water.rotation.x = -Math.PI / 2;
-    water.scale.set(POI.pond.rx, POI.pond.rz, 1);
-    water.position.set(AX + POI.pond.x, 0.03, POI.pond.z);
-    areaGroup.add(water);
-    const rim = new THREE.Mesh(new THREE.RingGeometry(1, 1.18, 40), new THREE.MeshStandardMaterial({ color: 0x9a8a62, roughness: 1 }));
-    rim.rotation.x = -Math.PI / 2;
-    rim.scale.set(POI.pond.rx, POI.pond.rz, 1);
-    rim.position.set(AX + POI.pond.x, 0.02, POI.pond.z);
-    areaGroup.add(rim);
-    const reedItems = [];
-    for (let i = 0; i < 40; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      reedItems.push({
-        x: AX + POI.pond.x + Math.cos(a) * POI.pond.rx * (1.02 + Math.random() * 0.18),
-        y: 0.55, z: POI.pond.z + Math.sin(a) * POI.pond.rz * (1.02 + Math.random() * 0.18),
-        sx: 1, sy: 0.8 + Math.random() * 0.7, sz: 1, rz: (Math.random() - 0.5) * 0.2,
-      });
+    // --- terraces lining both sides -----------------------------------------
+    function terrace(cx, cz, w, h, d, mat, faceDir) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+      b.position.set(cx, h / 2, cz); b.castShadow = true; b.receiveShadow = true;
+      areaGroup.add(b); solids.push(b);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(w + 0.5, 0.6, d + 0.5), stoneMat);
+      cap.position.set(cx, h + 0.25, cz); areaGroup.add(cap);
+      const ground0 = new THREE.Mesh(new THREE.BoxGeometry(w + 0.2, 1.4, d + 0.2), stoneMat); // shopfront band
+      ground0.position.set(cx, 0.7, cz); areaGroup.add(ground0);
+      // window facade on the street-facing side
+      const cols = Math.max(2, Math.floor(w / 2.4));
+      const rows = Math.max(3, Math.floor((h - 3) / 2.8));
+      const facMat = new THREE.MeshBasicMaterial({ map: facadeTexture(cols, rows), transparent: true });
+      const fac = new THREE.Mesh(new THREE.PlaneGeometry(w * 0.92, h - 3), facMat);
+      fac.position.set(cx + faceDir * (d / 2 + 0.06), (h - 3) / 2 + 1.6, cz);
+      fac.rotation.y = faceDir * Math.PI / 2;
+      areaGroup.add(fac);
+      return b;
     }
-    instancedFrom(new THREE.CylinderGeometry(0.02, 0.035, 1.1, 5), new THREE.MeshStandardMaterial({ color: 0x6f8a3c, roughness: 0.9 }), reedItems, { shadow: false });
-
-    // RUINED OUTPOST — concrete slab, broken walls, containers, watchtower
-    const conc = new THREE.MeshStandardMaterial({ color: 0x9aa0a4, roughness: 0.92, metalness: 0.05 });
-    const concDark = new THREE.MeshStandardMaterial({ color: 0x767c82, roughness: 0.95 });
-    const CX = POI.compound.x, CZ = POI.compound.z;
-    const slab = new THREE.Mesh(new THREE.BoxGeometry(POI.compound.w, 0.12, POI.compound.d), concDark);
-    slab.position.set(AX + CX, 0.06, CZ); slab.receiveShadow = true;
-    areaGroup.add(slab); solids.push(slab);
-    // axis-aligned wall segments (h, so AABB colliders fit exactly)
-    const walls = [
-      [CX - 10, CZ - 4, 0.4, 2.2, 9], // west wall (partial)
-      [CX - 10, CZ + 6.5, 0.4, 1.1, 4], // west wall broken stub
-      [CX - 3, CZ - 8.6, 8, 2.2, 0.4], // north wall
-      [CX + 6.5, CZ - 8.6, 4, 1.0, 0.4], // north broken stub
-      [CX + 10.6, CZ + 1, 0.4, 2.2, 7], // east wall
-      [CX + 2, CZ + 8.6, 6, 1.2, 0.4], // south low wall
-    ];
-    for (const [wx, wz, w, h, d] of walls) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), conc);
-      m.position.set(AX + wx, h / 2, wz);
-      m.castShadow = true; m.receiveShadow = true;
-      areaGroup.add(m); solids.push(m);
-      colliders.push(new THREE.Box3().setFromObject(m));
-    }
-    // cargo containers with a contrasting stripe
-    for (const [ox, oz, hue, ry] of [[CX + 5, CZ - 3, 0xa04a2a, 0], [CX - 4, CZ + 3.5, 0x2a5a8a, Math.PI / 2]]) {
-      const alongX = ry === 0;
-      const box = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 5.6 : 2.35, 2.3, alongX ? 2.35 : 5.6), new THREE.MeshStandardMaterial({ color: hue, roughness: 0.6, metalness: 0.35 }));
-      box.position.set(AX + ox, 1.15, oz);
-      box.castShadow = true; box.receiveShadow = true;
-      areaGroup.add(box); solids.push(box);
-      colliders.push(new THREE.Box3().setFromObject(box));
-      const stripe = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 5.64 : 0.4, 0.5, alongX ? 0.4 : 5.64), new THREE.MeshStandardMaterial({ color: 0xd8d2c2, roughness: 0.6 }));
-      stripe.position.set(AX + ox, 1.7, oz);
-      areaGroup.add(stripe);
-    }
-    // watchtower (SE corner)
-    const TX = CX + 8, TZ = CZ + 6;
-    for (const [lx, lz] of [[-0.7, -0.7], [0.7, -0.7], [-0.7, 0.7], [0.7, 0.7]]) {
-      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.11, 3.4, 7), concDark);
-      leg.position.set(AX + TX + lx, 1.7, TZ + lz);
-      leg.castShadow = true;
-      areaGroup.add(leg);
-    }
-    const platform = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.18, 2.2), conc);
-    platform.position.set(AX + TX, 3.5, TZ); platform.castShadow = true;
-    areaGroup.add(platform);
-    for (const sgn of [[0, -1], [0, 1], [-1, 0], [1, 0]]) {
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(sgn[0] === 0 ? 2.2 : 0.08, 0.5, sgn[0] === 0 ? 0.08 : 2.2), concDark);
-      rail.position.set(AX + TX + sgn[0] * 1.06, 3.85, TZ + sgn[1] * 1.06);
-      areaGroup.add(rail);
-    }
-    const roof = new THREE.Mesh(new THREE.ConeGeometry(1.9, 0.9, 4), new THREE.MeshStandardMaterial({ color: 0x5a6a4a, roughness: 0.8 }));
-    roof.position.set(AX + TX, 4.9, TZ); roof.rotation.y = Math.PI / 4; roof.castShadow = true;
-    areaGroup.add(roof);
-    colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + TX, 1.7, TZ), new THREE.Vector3(1.9, 3.4, 1.9)));
-    // sandbag lines
-    for (const [sx, sz, w, d] of [[CX - 2, CZ - 2, 2.2, 0.55], [CX + 1.5, CZ + 5, 0.55, 2.2]]) {
-      const bag = new THREE.Mesh(new THREE.BoxGeometry(w, 0.72, d), new THREE.MeshStandardMaterial({ color: 0xb8a76a, roughness: 1 }));
-      bag.position.set(AX + sx, 0.36, sz);
-      bag.castShadow = true; bag.receiveShadow = true;
-      areaGroup.add(bag); solids.push(bag);
-      colliders.push(new THREE.Box3().setFromObject(bag));
-    }
-    makeSupplyCrate(CX, CZ, "crate_outpost");
-
-    // CRASHED DROP POD — scorched crater, tilted hull, ember glow
-    const PDX = POI.pod.x, PDZ = POI.pod.z;
-    const scorch = new THREE.Mesh(new THREE.CircleGeometry(5, 26), new THREE.MeshStandardMaterial({ color: 0x1e1a16, roughness: 1 }));
-    scorch.rotation.x = -Math.PI / 2;
-    scorch.position.set(AX + PDX, 0.018, PDZ);
-    areaGroup.add(scorch);
-    const hull = new THREE.Mesh(new THREE.CapsuleGeometry(1.15, 2.3, 6, 12), new THREE.MeshStandardMaterial({ color: 0x3a4048, roughness: 0.45, metalness: 0.6 }));
-    hull.rotation.z = 1.2; hull.rotation.y = 0.4;
-    hull.position.set(AX + PDX, 0.95, PDZ);
-    hull.castShadow = true; hull.receiveShadow = true;
-    areaGroup.add(hull); solids.push(hull);
-    colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + PDX, 1, PDZ), new THREE.Vector3(3.4, 2, 2.6)));
-    for (const [gx, gy, gz, ry] of [[0.4, 1.3, 0.6, 0.5], [-0.6, 0.8, -0.5, -0.7]]) { // glowing cracks
-      const crack = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.06, 0.1), new THREE.MeshStandardMaterial({ color: 0xff7030, emissive: 0xff5a20, emissiveIntensity: 1.3, roughness: 0.4 }));
-      crack.position.set(AX + PDX + gx, gy, PDZ + gz);
-      crack.rotation.set(0.4, ry, 0.9);
-      areaGroup.add(crack);
-    }
-    const podGlow = new THREE.PointLight(0xff7030, 1.1, 11, 2);
-    podGlow.position.set(AX + PDX, 1.4, PDZ);
-    areaGroup.add(podGlow);
-    const fin = new THREE.Mesh(new THREE.BoxGeometry(0.1, 1.4, 0.9), new THREE.MeshStandardMaterial({ color: 0x2c3138, roughness: 0.5, metalness: 0.6 }));
-    fin.position.set(AX + PDX - 1.6, 1.6, PDZ - 0.4);
-    fin.rotation.z = 0.9; fin.castShadow = true;
-    areaGroup.add(fin);
-    const shardMat = new THREE.MeshStandardMaterial({ color: 0x30353c, roughness: 0.6, metalness: 0.5 });
-    const shardItems = [];
-    for (let i = 0; i < 14; i += 1) {
-      const a = Math.random() * Math.PI * 2;
-      const r = 1.8 + Math.random() * 3;
-      shardItems.push({ x: AX + PDX + Math.cos(a) * r, y: 0.1, z: PDZ + Math.sin(a) * r, s: 0.35 + Math.random() * 0.5, ry: Math.random() * 6, rx: Math.random() });
-    }
-    instancedFrom(new THREE.TetrahedronGeometry(0.5, 0), shardMat, shardItems);
-    makeSupplyCrate(PDX + 3.4, PDZ + 2.2, "crate_pod");
-
-    // ROCK PLATEAUS — big landmarks / hard cover
-    const plateauMat = new THREE.MeshStandardMaterial({ color: 0x84898f, roughness: 0.95, flatShading: true });
-    for (const [px, pz, r, h] of [[14, 20, 4.4, 2.6], [-20, -12, 3.4, 2.1], [34, 8, 3.8, 2.4]]) {
-      const rock = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.82, r, h, 7), plateauMat);
-      rock.position.set(AX + px, h / 2, pz);
-      rock.castShadow = true; rock.receiveShadow = true;
-      areaGroup.add(rock); solids.push(rock);
-      colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + px, h / 2, pz), new THREE.Vector3(r * 1.7, h, r * 1.7)));
-    }
-
-    // FOREST — four species, instanced (one draw call per species)
-    const treeMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.9, flatShading: true });
-    const treeLists = [[], [], [], []];
-    let placed = 0, tries = 0;
-    while (placed < 300 && tries < 2600) {
-      tries += 1;
-      const ex = (Math.random() - 0.5) * 2 * (FH - 2.5);
-      const ez = (Math.random() - 0.5) * 2 * (FH - 2.5);
-      if (isBlockedRel(ex, ez)) continue;
-      const roll = Math.random();
-      const kind = roll < 0.45 ? 0 : roll < 0.75 ? 1 : roll < 0.9 ? 2 : 3;
-      const s = 0.85 + Math.random() * 0.9;
-      treeLists[kind].push({ x: AX + ex, z: ez, s, ry: Math.random() * 6.28, tint: 0.85 + Math.random() * 0.3 });
-      colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, 1, ez), new THREE.Vector3(0.55 * s, 2.2, 0.55 * s)));
-      placed += 1;
-    }
-    // dense boundary ring (natural wall)
-    for (let a = 0; a < Math.PI * 2; a += 0.045) {
-      const r = FH - 0.5 + Math.random() * 3;
-      const kind = Math.random() < 0.75 ? 0 : 1;
-      treeLists[kind].push({ x: AX + Math.cos(a) * r, z: Math.sin(a) * r, s: 1.1 + Math.random() * 0.8, ry: Math.random() * 6.28, tint: 0.8 + Math.random() * 0.25 });
-    }
-    for (let k = 0; k < 4; k += 1) {
-      if (treeLists[k].length) instancedFrom(treeGeometry(k), treeMat, treeLists[k]);
-    }
-
-    // rocks / bushes / stumps — instanced clutter
-    const rockItems = [];
-    for (let i = 0; i < 70; i += 1) {
-      const r = 0.4 + Math.random() * 0.9;
-      const ex = (Math.random() - 0.5) * FH * 1.8;
-      const ez = (Math.random() - 0.5) * FH * 1.8;
-      if (isBlockedRel(ex, ez)) continue;
-      rockItems.push({ x: AX + ex, y: r * 0.42, z: ez, s: r, rx: Math.random(), ry: Math.random() * 6 });
-      if (r > 0.85) colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, r * 0.5, ez), new THREE.Vector3(r * 1.4, r, r * 1.4)));
-    }
-    instancedFrom(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.95, flatShading: true }), rockItems);
-    const bushItems = [];
-    for (let i = 0; i < 150; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.8;
-      const ez = (Math.random() - 0.5) * FH * 1.8;
-      if (isBlockedRel(ex, ez)) continue;
-      const s = 0.4 + Math.random() * 0.5;
-      bushItems.push({ x: AX + ex, y: s * 0.6, z: ez, s, ry: Math.random() * 6, tint: 0.8 + Math.random() * 0.4 });
-    }
-    instancedFrom(new THREE.IcosahedronGeometry(1, 0), new THREE.MeshStandardMaterial({ color: 0x3f7a3a, roughness: 0.9, flatShading: true }), bushItems);
-    const stumpItems = [];
-    for (let i = 0; i < 22; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.7;
-      const ez = (Math.random() - 0.5) * FH * 1.7;
-      if (isBlockedRel(ex, ez)) continue;
-      stumpItems.push({ x: AX + ex, y: 0.17, z: ez, s: 0.8 + Math.random() * 0.5, ry: Math.random() * 6 });
-    }
-    instancedFrom(new THREE.CylinderGeometry(0.24, 0.32, 0.36, 8), new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 }), stumpItems);
-    // fallen logs (few, individual)
-    const barkMat = new THREE.MeshStandardMaterial({ color: 0x584127, roughness: 1 });
-    for (let i = 0; i < 12; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.6;
-      const ez = (Math.random() - 0.5) * FH * 1.6;
-      if (isBlockedRel(ex, ez)) continue;
-      const len = 2 + Math.random() * 1.8;
-      const log = new THREE.Mesh(new THREE.CylinderGeometry(0.17, 0.2, len, 7), barkMat);
-      log.rotation.z = Math.PI / 2;
-      log.rotation.y = Math.random() * Math.PI;
-      log.position.set(AX + ex, 0.18, ez);
-      log.castShadow = true; log.receiveShadow = true;
-      areaGroup.add(log);
-    }
-    // bioluminescent mushrooms (instanced caps + stems)
-    const capItems = [];
-    const stemItems = [];
-    for (let i = 0; i < 26; i += 1) {
-      const ex = (Math.random() - 0.5) * FH * 1.8;
-      const ez = (Math.random() - 0.5) * FH * 1.8;
-      if (isBlockedRel(ex, ez)) continue;
-      for (let j = 0; j < 3; j += 1) {
-        const s = 0.5 + Math.random() * 0.8;
-        const ox = (Math.random() - 0.5) * 0.7;
-        const oz = (Math.random() - 0.5) * 0.7;
-        stemItems.push({ x: AX + ex + ox, y: 0.07 * s, z: ez + oz, s });
-        capItems.push({ x: AX + ex + ox, y: 0.16 * s, z: ez + oz, s });
+    const depth = 8;
+    const innerX = SHW + 7; // building inner face = outer edge of the pavement
+    for (const s of [-1, 1]) {
+      let z = -L + 20;
+      while (z < L - 8) {
+        const w = 10 + Math.random() * 4;
+        if (Math.random() < 0.12) { z += w + 5; continue; } // alley gap
+        const h = 11 + Math.random() * 15;
+        const mat = brickMats[(Math.random() * brickMats.length) | 0];
+        terrace(AX + s * (innerX + depth / 2), z + w / 2, w, h, depth, mat, -s);
+        z += w + 1.2;
       }
     }
-    instancedFrom(new THREE.CylinderGeometry(0.02, 0.03, 0.14, 5), new THREE.MeshStandardMaterial({ color: 0xd8e2d0, roughness: 0.9 }), stemItems, { shadow: false });
-    instancedFrom(new THREE.ConeGeometry(0.07, 0.08, 7), new THREE.MeshStandardMaterial({ color: 0x5adfff, emissive: 0x38c8f0, emissiveIntensity: 1.1, roughness: 0.5 }), capItems, { shadow: false });
 
-    // scattered field cover (crates + barriers) between the POIs
-    const crateMat = new THREE.MeshStandardMaterial({ map: hazardTex, roughness: 0.6, metalness: 0.2 });
-    const barrierMat = new THREE.MeshStandardMaterial({ map: metalTex, roughness: 0.5, metalness: 0.4 });
-    let cover = 0, coverTries = 0;
-    while (cover < 12 && coverTries < 90) {
-      coverTries += 1;
-      const a = Math.random() * Math.PI * 2;
-      const r = 7 + Math.random() * (FH - 14);
-      const ex = Math.cos(a) * r;
-      const ez = Math.sin(a) * r;
-      if (isBlockedRel(ex, ez)) continue;
-      if (cover % 2 === 0) {
-        const box = new THREE.Mesh(new THREE.BoxGeometry(1.25, 1.1, 1.25), crateMat);
-        box.position.set(AX + ex, 0.55, ez);
-        box.rotation.y = Math.random() * Math.PI;
-        box.castShadow = true; box.receiveShadow = true;
-        areaGroup.add(box); solids.push(box);
-        colliders.push(new THREE.Box3().setFromCenterAndSize(new THREE.Vector3(AX + ex, 0.55, ez), new THREE.Vector3(1.5, 1.1, 1.5)));
-      } else {
-        const alongX = Math.random() < 0.5;
-        const bar = new THREE.Mesh(new THREE.BoxGeometry(alongX ? 2.4 : 0.35, 0.95, alongX ? 0.35 : 2.4), barrierMat);
-        bar.position.set(AX + ex, 0.47, ez);
-        bar.castShadow = true; bar.receiveShadow = true;
-        areaGroup.add(bar); solids.push(bar);
-        colliders.push(new THREE.Box3().setFromObject(bar));
+    // --- landmarks at the far end: Big Ben + Parliament silhouette -----------
+    (function bigBen() {
+      const x = AX, z = -L - 1;
+      const tower = new THREE.Mesh(new THREE.BoxGeometry(9, 42, 9), stoneMat);
+      tower.position.set(x, 21, z); tower.castShadow = true; areaGroup.add(tower); solids.push(tower);
+      const band = new THREE.Mesh(new THREE.BoxGeometry(9.8, 8, 9.8), stoneMat); band.position.set(x, 40, z); areaGroup.add(band);
+      const clockMat = new THREE.MeshStandardMaterial({ map: clockTexture(), emissive: 0x2a2410, emissiveIntensity: 0.35, roughness: 0.6 });
+      for (const [dx, dz, ry] of [[0, 5.0, 0], [0, -5.0, Math.PI], [5.0, 0, Math.PI / 2], [-5.0, 0, -Math.PI / 2]]) {
+        const cf = new THREE.Mesh(new THREE.CircleGeometry(2.7, 30), clockMat);
+        cf.position.set(x + dx, 40, z + dz); cf.rotation.y = ry; areaGroup.add(cf);
       }
-      cover += 1;
+      const belfry = new THREE.Mesh(new THREE.BoxGeometry(8, 8, 8), stoneMat); belfry.position.set(x, 48, z); areaGroup.add(belfry);
+      const spire = new THREE.Mesh(new THREE.ConeGeometry(6.2, 13, 4), stoneMat); spire.position.set(x, 58.5, z); spire.rotation.y = Math.PI / 4; spire.castShadow = true; areaGroup.add(spire);
+      const finial = new THREE.Mesh(new THREE.SphereGeometry(0.7, 12, 10), new THREE.MeshStandardMaterial({ color: 0xd9b24a, metalness: 0.7, roughness: 0.3, emissive: 0x5a4310, emissiveIntensity: 0.5 }));
+      finial.position.set(x, 65.5, z); areaGroup.add(finial);
+    })();
+    (function parliament() {
+      const z = -L - 10;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(64, 20, 8), stoneMat); body.position.set(AX, 10, z); body.castShadow = true; areaGroup.add(body);
+      for (let ix = -30; ix <= 30; ix += 4) { const m = new THREE.Mesh(new THREE.BoxGeometry(2, 2, 8), stoneMat); m.position.set(AX + ix, 21, z); areaGroup.add(m); }
+      for (const ix of [-26, -9, 9, 26]) {
+        const t = new THREE.Mesh(new THREE.BoxGeometry(5, 28, 6), stoneMat); t.position.set(AX + ix, 14, z - 1); areaGroup.add(t);
+        const sp = new THREE.Mesh(new THREE.ConeGeometry(3.6, 6, 4), stoneMat); sp.position.set(AX + ix, 31, z - 1); sp.rotation.y = Math.PI / 4; areaGroup.add(sp);
+      }
+    })();
+
+    // --- street props -------------------------------------------------------
+    const busRed = new THREE.MeshStandardMaterial({ color: 0xc8102e, roughness: 0.5, metalness: 0.2 });
+    const busWin = new THREE.MeshStandardMaterial({ color: 0x1a2430, emissive: 0x0a1018, roughness: 0.3, metalness: 0.4 });
+    const tyre = new THREE.MeshStandardMaterial({ color: 0x0e0e10, roughness: 0.85 });
+    function bus(x, z, ry) {
+      const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.5, 4.2, 9), busRed); body.position.y = 2.4; body.castShadow = true; g.add(body); solids.push(body);
+      for (const wy of [3.3, 1.9]) { const win = new THREE.Mesh(new THREE.BoxGeometry(2.54, 0.9, 8.2), busWin); win.position.y = wy; g.add(win); }
+      for (const wz of [-3, 3]) for (const wx of [-1.1, 1.1]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.6, 0.6, 0.4, 14), tyre); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.6, wz); g.add(wh); }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    const cabBlack = new THREE.MeshStandardMaterial({ color: 0x0c0c10, roughness: 0.4, metalness: 0.4 });
+    function cab(x, z, ry) {
+      const g = new THREE.Group(); g.position.set(x, 0, z); g.rotation.y = ry;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(2.0, 1.5, 4.4), cabBlack); body.position.y = 0.9; body.castShadow = true; g.add(body); solids.push(body);
+      const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.1, 2.4), cabBlack); cabin.position.set(0, 1.9, -0.2); g.add(cabin); solids.push(cabin);
+      const win = new THREE.Mesh(new THREE.BoxGeometry(1.94, 0.8, 2.2), busWin); win.position.set(0, 2.0, -0.2); g.add(win);
+      for (const wz of [-1.4, 1.4]) for (const wx of [-1.0, 1.0]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 12), tyre); wh.rotation.z = Math.PI / 2; wh.position.set(wx, 0.45, wz); g.add(wh); }
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    // red K6 phone box
+    const phoneRed = new THREE.MeshStandardMaterial({ color: 0xd21f2e, roughness: 0.45, metalness: 0.2 });
+    function phoneBox(x, z) {
+      const g = new THREE.Group(); g.position.set(x, 0, z);
+      const body = new THREE.Mesh(new THREE.BoxGeometry(1.0, 2.6, 1.0), phoneRed); body.position.y = 1.3; body.castShadow = true; g.add(body); solids.push(body);
+      const glass = new THREE.Mesh(new THREE.BoxGeometry(1.04, 1.5, 1.04), busWin); glass.position.y = 1.7; g.add(glass);
+      const crown = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.3, 1.1), phoneRed); crown.position.y = 2.75; g.add(crown);
+      areaGroup.add(g); colliders.push(new THREE.Box3().setFromObject(g));
+    }
+    // street lamp (fake warm glow via emissive, no extra real light)
+    const lampPole = new THREE.MeshStandardMaterial({ color: 0x1c2430, roughness: 0.6, metalness: 0.5 });
+    const lampGlow = new THREE.MeshStandardMaterial({ color: 0xffe6a8, emissive: 0xffcf80, emissiveIntensity: 1.2, roughness: 0.4 });
+    function lamp(x, z) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.12, 5.2, 10), lampPole); pole.position.set(x, 2.6, z); pole.castShadow = true; areaGroup.add(pole); solids.push(pole);
+      const head = new THREE.Mesh(new THREE.SphereGeometry(0.26, 12, 10), lampGlow); head.position.set(x, 5.2, z); areaGroup.add(head);
+    }
+    // Underground roundel on a pole
+    const roundelMat = new THREE.MeshBasicMaterial({ map: roundelTexture(), transparent: true, side: THREE.DoubleSide });
+    function roundel(x, z, ry) {
+      const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 3.4, 8), lampPole); pole.position.set(x, 1.7, z); areaGroup.add(pole); solids.push(pole);
+      const sign = new THREE.Mesh(new THREE.PlaneGeometry(1.6, 1.6), roundelMat); sign.position.set(x, 3.5, z); sign.rotation.y = ry; areaGroup.add(sign);
+    }
+    // Union Jack banner hung on a building front
+    const jackMat = new THREE.MeshBasicMaterial({ map: unionJackTexture(), side: THREE.DoubleSide });
+    function unionJack(x, z, ry) {
+      const b = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 1.5), jackMat); b.position.set(x, 6.5, z); b.rotation.y = ry; areaGroup.add(b);
     }
 
-    // drifting spores/pollen — subtle life in the air
-    const sporeCount = 260;
-    const positions = new Float32Array(sporeCount * 3);
-    for (let i = 0; i < sporeCount; i += 1) {
-      positions[i * 3] = AX + (Math.random() - 0.5) * FH * 1.8;
-      positions[i * 3 + 1] = 0.4 + Math.random() * 4.5;
-      positions[i * 3 + 2] = (Math.random() - 0.5) * FH * 1.8;
+    // scatter the props down the avenue
+    for (let z = -L + 24; z < L - 8; z += 15) {
+      lamp(AX - (SHW + 2), z); lamp(AX + (SHW + 2), z + 7);
     }
-    const sporeGeo = new THREE.BufferGeometry();
-    sporeGeo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-    sporesRef = new THREE.Points(sporeGeo, new THREE.PointsMaterial({ color: 0xe8ffe8, size: 0.06, transparent: true, opacity: 0.45, sizeAttenuation: true }));
-    areaGroup.add(sporesRef);
+    for (const [x, z, ry] of [[AX - (SHW - 1.5), 60, 0.4], [AX + (SHW - 1.8), 8, -0.3], [AX - (SHW - 2), -44, 0.2], [AX + (SHW - 1.5), -84, -0.4]]) bus(x, z, ry);
+    for (const [x, z, ry] of [[AX + (SHW - 1.2), 88, 2.4], [AX - (SHW - 1.2), 24, 0.9], [AX + (SHW - 1.4), -16, 2.0], [AX - (SHW - 1.3), -64, 1.2]]) cab(x, z, ry);
+    for (const [x, z] of [[AX - (SHW + 2.6), 96], [AX + (SHW + 2.6), 40], [AX - (SHW + 2.6), -24], [AX + (SHW + 2.6), -70]]) phoneBox(x, z);
+    for (const [x, z, ry] of [[AX - (SHW + 2.4), 72, Math.PI / 2], [AX + (SHW + 2.4), -8, -Math.PI / 2], [AX - (SHW + 2.4), -88, Math.PI / 2]]) roundel(x, z, ry);
+    for (const [x, z, ry] of [[AX - (innerX - 0.2), 50, Math.PI / 2], [AX + (innerX - 0.2), -2, -Math.PI / 2], [AX - (innerX - 0.2), -56, Math.PI / 2]]) unionJack(x, z, ry);
 
-    // extract pad (return to base)
-    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.05, 8).rotateX(-Math.PI / 2));
-    areaGroup.add(col(1.7, 0.1, mint, AX, 0.06, 8, 28));
-    const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, 8); areaGroup.add(exLabel);
+    // sandbag/concrete cover in the street for firefights (colliders)
+    const coverMat = new THREE.MeshStandardMaterial({ map: loadTex("stone", 1, 1), roughness: 0.95 });
+    for (const [ex, z] of [[-4, 78], [5, 30], [-6, -12], [4, -50], [-3, -78]]) {
+      const bar = new THREE.Mesh(new THREE.BoxGeometry(3, 1.1, 1.1), coverMat);
+      bar.position.set(AX + ex, 0.55, z); bar.castShadow = true; areaGroup.add(bar); solids.push(bar);
+      colliders.push(new THREE.Box3().setFromObject(bar));
+    }
+
+    // --- ammo supply points along the route --------------------------------
+    function ammoPoint(z, s) {
+      const x = AX + s * (SHW + 1.6);
+      const crate = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.05, 1.05), new THREE.MeshStandardMaterial({ color: 0x3f4a2c, roughness: 0.7, metalness: 0.2 }));
+      crate.position.set(x, 0.62, z); crate.castShadow = true; areaGroup.add(crate); solids.push(crate);
+      const stripe = new THREE.Mesh(new THREE.BoxGeometry(1.54, 0.18, 1.09), new THREE.MeshStandardMaterial({ color: 0xffcf3a, emissive: 0xffb000, emissiveIntensity: 0.55 }));
+      stripe.position.set(x, 0.95, z); areaGroup.add(stripe);
+      const lbl = makeLabel("弹药补给 [E]", "#ffd23a"); lbl.position.set(x, 1.8, z); areaGroup.add(lbl);
+      interactables.push({ name: "弹药补给", action: "ammo", pos: new THREE.Vector3(x, 0, z), radius: 2.4 });
+    }
+    ammoPoint(84, 1); ammoPoint(28, -1); ammoPoint(-26, 1); ammoPoint(-78, -1);
+
+    // a couple of loot supply crates along the way
+    makeSupplyCrate(-(SHW + 1.6), 54, "lc1");
+    makeSupplyCrate(SHW + 1.6, -40, "lc2");
+
+    // extract pad at the near (spawn) end
+    areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
+    const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, RL - 8); areaGroup.add(exLabel);
   })();
-  interactables.push({ name: "撤离点", action: "extract", pos: new THREE.Vector3(AX, 0, 8), radius: 2.6 });
+  interactables.push({ name: "撤离点", action: "extract", pos: extractPos, radius: 2.6 });
+
 
   // Articulated soldier: limbs hang from hip/shoulder pivots so they can be
   // swung procedurally while the enemy walks. Head parts are tagged for
@@ -913,40 +809,56 @@ export function createWorld(scene, hooks = {}) {
   // invisible hit material shared by all enemy hitboxes
   const hitMat = new THREE.MeshBasicMaterial({ visible: false });
 
-  function makeEnemy(x, z, hp, heavy = false) {
+  // Enemy tiers: colour-coded so elites read at a glance. dmgMul scales the
+  // damage they deal; hpMul/scale set their toughness/size.
+  const TIERS = {
+    grunt: { tint: null, emissive: null, hpMul: 1, dmgMul: 1, speed: 2.5, scale: 1 },
+    elite1: { tint: 0x4aa3ff, emissive: 0x123a6a, hpMul: 1.7, dmgMul: 1.3, speed: 2.8, scale: 1.12, name: "精英" },
+    elite2: { tint: 0xb06bff, emissive: 0x40206a, hpMul: 2.6, dmgMul: 1.6, speed: 2.4, scale: 1.22, name: "重装精英" },
+    heavy: { tint: 0xd06a5a, emissive: 0x902018, hpMul: 4, dmgMul: 1.8, speed: 1.6, scale: 1.45, name: "重型" },
+    boss: { tint: 0xffb020, emissive: 0x7a3a00, hpMul: 1, dmgMul: 2.4, speed: 1.7, scale: 2.4, name: "首领" },
+  };
+
+  // makeEnemy(x, z, opts) — x/z are relative to AX. opts: { hp, tier, dmgMul, boss, name }.
+  function makeEnemy(x, z, opts = {}) {
+    const tier = TIERS[opts.tier || "grunt"] || TIERS.grunt;
+    const scale = opts.scale || tier.scale;
+    const hp = opts.hp != null ? opts.hp : 60;
     const g = new THREE.Group();
     g.position.set(AX + x, 0, z);
     const ctrl = {
       group: g, health: hp, maxHealth: hp, alive: true, hitFlash: 0, phase: Math.random() * 6,
-      heavy,
+      heavy: opts.tier === "heavy" || !!opts.boss,
+      elite: opts.tier === "elite1" || opts.tier === "elite2",
+      boss: !!opts.boss,
+      tier: opts.tier || "grunt",
+      name: opts.name || tier.name || "训练兵",
+      dmgMul: opts.dmgMul != null ? opts.dmgMul : tier.dmgMul,
       dying: false, deathT: 0,
-      speed: heavy ? 1.5 : 2.4 + Math.random() * 0.9, // a touch faster so they close the gap
-      engaged: false, // flips true once within detection range (then they fire)
-      nextShot: state.time + 3.5 + Math.random() * 3, // long grace: time to get bearings
-      strafePhase: Math.random() * 6, // zig-zag approach offset
+      speed: opts.speed || tier.speed + (opts.boss ? 0 : Math.random() * 0.7),
+      engaged: false,
+      nextShot: state.time + (opts.boss ? 1.5 : 3.5 + Math.random() * 3),
+      strafePhase: Math.random() * 6,
       strafeDir: Math.random() < 0.5 ? 1 : -1,
-      stagger: 0, // brief pause after taking a hit
-      flashT: 0, // muzzle flash visibility timer
-      character: null, // rigged GLB instance (preferred)
-      rig: null, // procedural fallback rig
+      stagger: 0,
+      flashT: 0,
+      character: null,
+      rig: null,
     };
 
-    // Prefer the rigged/animated soldier model; fall back to procedural blocks
-    // if the GLB hasn't downloaded yet (keeps the game playable regardless).
-    const scale = heavy ? 1.45 : 1;
     const inst = characterReady()
-      ? makeCharacter({ tint: heavy ? 0xd06a5a : undefined, emissive: heavy ? 0x902018 : null })
+      ? makeCharacter({ tint: tier.tint == null ? undefined : tier.tint, emissive: tier.emissive })
       : null;
     if (inst) {
       inst.group.scale.setScalar(scale);
-      inst.group.rotation.y = Math.PI; // GLB faces -Z; flip so its front matches +Z (the facing convention)
+      inst.group.rotation.y = Math.PI; // GLB faces -Z; flip so its front matches +Z
       g.add(inst.group);
       ctrl.character = inst;
       ctrl.walkAnim = "Idle";
-      ctrl.lastX = g.position.x; // for measuring real speed (anti foot-slide)
+      ctrl.lastX = g.position.x;
       ctrl.lastZ = g.position.z;
     } else {
-      const body = buildSoldier(heavy ? 0xb03a3a : 0xc8d2dc);
+      const body = buildSoldier(tier.tint == null ? 0xc8d2dc : tier.tint);
       body.scale.setScalar(scale);
       g.add(body);
       ctrl.rig = body.userData.rig;
@@ -971,35 +883,48 @@ export function createWorld(scene, hooks = {}) {
     return ctrl;
   }
 
-  const state = { score: 0, time: 0, inArea: false, wave: 0 };
-  let nextWaveAt = -1; // >0 while waiting between cleared waves
+  const state = { score: 0, time: 0, inArea: false, wave: 0, stage: 0, boss: null };
 
-  function spawnWave(n) {
-    for (const e of enemies) scene.remove(e.group);
-    enemies.length = 0;
-    // enemies get a bit tougher each wave
-    const hp = Math.min(60 + (state.wave - 1) * 15, 120);
-    // Spawn as a squad coming from ONE direction (a frontal arc), not a full
-    // 360° ring — so entering an area never means being surrounded. Each wave
-    // picks a fresh approach bearing; enemies spread ±60° around it, far off.
-    const baseAngle = Math.random() * Math.PI * 2;
-    let placed = 0, tries = 0;
-    while (placed < n && tries < n * 12) {
-      tries += 1;
-      const a = baseAngle + (Math.random() - 0.5) * (Math.PI * 2 / 3); // ±60°
-      const r = 26 + Math.random() * 16; // 26–42m out: they must walk in
-      const ex = Math.cos(a) * r;
-      const ez = Math.sin(a) * r;
-      if (isBlockedRel(ex, ez)) continue; // don't spawn inside a POI
-      makeEnemy(ex, ez, hp);
-      placed += 1;
+  // --- linear stage progression -------------------------------------------
+  // Each stage triggers when the player advances past `triggerZ` (moving from
+  // +Z toward -Z). Enemies spawn AHEAD (more negative Z) so you push forward
+  // into them. Toughness + elite mix ramps up; the last stage is the boss.
+  const STAGES = [
+    { triggerZ: RL - 30, name: "第 1 区 · 街口", sub: "肃清街口的散兵", zone: [55, 78],
+      squad: [{ tier: "grunt", hp: 55, n: 4 }] },
+    { triggerZ: 55, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [5, 34],
+      squad: [{ tier: "grunt", hp: 75, n: 5 }, { tier: "elite1", hp: 150, n: 1 }] },
+    { triggerZ: 6, name: "第 3 区 · 广场", sub: "火力压制，蓝色精英", zone: [-34, -6],
+      squad: [{ tier: "grunt", hp: 110, n: 6 }, { tier: "elite1", hp: 180, n: 2 }] },
+    { triggerZ: -34, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-78, -50],
+      squad: [{ tier: "elite2", hp: 320, n: 3 }, { tier: "heavy", hp: 520, n: 1 }] },
+    { triggerZ: -80, name: "最终 · 大本钟", sub: "⚠ 最终首领现身", zone: [-108, -100], boss: true,
+      squad: [{ tier: "elite1", hp: 200, n: 2 }] },
+  ];
+
+  function spawnSquad(entries, zone) {
+    for (const e of entries) {
+      for (let i = 0; i < e.n; i += 1) {
+        const ex = (Math.random() - 0.5) * (SHW * 2 - 3);
+        const ez = zone[0] + Math.random() * (zone[1] - zone[0]);
+        makeEnemy(ex, ez, { tier: e.tier, hp: e.hp });
+      }
     }
-    // every 3rd wave a heavy joins the squad from the same direction
-    const hasBoss = state.wave > 0 && state.wave % 3 === 0;
-    if (hasBoss) {
-      makeEnemy(Math.cos(baseAngle) * 30, Math.sin(baseAngle) * 30, 240 + state.wave * 20, true);
+  }
+
+  function startStage(idx) {
+    const st = STAGES[idx];
+    if (!st) return;
+    state.stage = idx + 1;
+    if (st.boss) {
+      spawnSquad(st.squad, st.zone);
+      const boss = makeEnemy(0, -110, { boss: true, tier: "boss", hp: 4200, name: "钢铁首领" });
+      state.boss = boss;
+      if (hooks.onBossSpawn) hooks.onBossSpawn(boss);
+    } else {
+      spawnSquad(st.squad, st.zone);
     }
-    if (hooks.onWaveSpawn) hooks.onWaveSpawn(state.wave, placed + (hasBoss ? 1 : 0), hasBoss);
+    if (hooks.onStage) hooks.onStage(st.name, st.sub);
   }
 
   // --- transient combat FX: death bursts + shell shards -------------------
@@ -1047,9 +972,10 @@ export function createWorld(scene, hooks = {}) {
       to.y += Math.random() * 1.4;
       to.z += (Math.random() - 0.5) * 2.6;
     }
-    spawnTracer(from, to, e.heavy ? 0xff4030 : 0xff8a5a);
+    spawnTracer(from, to, e.boss ? 0xff2060 : e.heavy || e.elite ? 0xff4030 : 0xff8a5a);
     audio.enemyShot();
-    const dmg = e.heavy ? 9 + Math.floor(Math.random() * 6) : 4 + Math.floor(Math.random() * 4);
+    const base = e.heavy ? 9 + Math.floor(Math.random() * 6) : 4 + Math.floor(Math.random() * 4);
+    const dmg = Math.round(base * (e.dmgMul || 1)); // later stages hit harder
     if (hit && hooks.onPlayerHit) hooks.onPlayerHit(dmg);
   }
 
@@ -1101,35 +1027,40 @@ export function createWorld(scene, hooks = {}) {
       ctrl.alive = false;
       ctrl.dying = true; // fall over, then sink away (animated in update)
       ctrl.deathT = 0;
-      spawnDeathBurst(ctrl.group.position, ctrl.heavy);
-      // heavies guarantee a haul of three drops
-      const drops = ctrl.heavy ? 3 : 1;
+      spawnDeathBurst(ctrl.group.position, ctrl.heavy || ctrl.boss);
+      // tougher units guarantee a bigger haul
+      const drops = ctrl.boss ? 8 : ctrl.heavy ? 3 : ctrl.elite ? 2 : 1;
       for (let i = 0; i < drops; i += 1) {
-        const off = i === 0 ? { x: 0, z: 0 } : { x: (Math.random() - 0.5) * 1.6, z: (Math.random() - 0.5) * 1.6 };
+        const off = i === 0 ? { x: 0, z: 0 } : { x: (Math.random() - 0.5) * 2.4, z: (Math.random() - 0.5) * 2.4 };
         spawnLoot({ x: ctrl.group.position.x + off.x, z: ctrl.group.position.z + off.z });
       }
       state.score += 1;
+      if (ctrl.boss) {
+        state.boss = null;
+        if (hooks.onBossDefeated) hooks.onBossDefeated();
+      }
       return true;
     }
     return false;
   }
   function enterArea1() {
-    scene.fog = forestFog; scene.background = forestBg;
-    // warm daylight over the forest, greener bounce light; the sun follows the
-    // player into the far-away area so shadows actually cover it
-    key.color.set(0xffe9c4); key.intensity = 3.3;
-    key.position.set(AX + 16, 30, 14);
-    key.target.position.set(AX, 0, 0);
+    scene.fog = londonFog; scene.background = londonBg;
+    // flat overcast London daylight; the sun follows the player down the avenue
+    key.color.set(0xdfe4ea); key.intensity = 2.1;
+    key.position.set(AX + 20, 36, 30);
+    key.target.position.set(AX, 0, -20);
     const sc = key.shadow.camera;
-    sc.left = -48; sc.right = 48; sc.top = 48; sc.bottom = -48; sc.far = 110;
+    sc.left = -40; sc.right = 40; sc.top = 60; sc.bottom = -60; sc.far = 150;
     sc.updateProjectionMatrix();
-    hemi.color.set(0xdcecff); hemi.groundColor.set(0x4a6a3c); hemi.intensity = 1.25;
+    hemi.color.set(0xc4ccd6); hemi.groundColor.set(0x555a60); hemi.intensity = 1.15;
     for (const c of supplyCrates) { c.opened = false; c.seamMat.emissiveIntensity = 0.9; }
     areaGroup.visible = true;
     state.inArea = true;
-    state.wave = 1;
-    nextWaveAt = -1;
-    clearLoot(); clearTracers(); spawnWave(6);
+    state.wave = 0;
+    state.stage = 0;
+    state.boss = null;
+    clearLoot(); clearTracers();
+    // no enemies up front — stage 1 triggers as the player advances forward
   }
   function extract() {
     scene.fog = baseFog; scene.background = baseBg;
@@ -1143,7 +1074,8 @@ export function createWorld(scene, hooks = {}) {
     areaGroup.visible = false;
     state.inArea = false;
     state.wave = 0;
-    nextWaveAt = -1;
+    state.stage = 0;
+    state.boss = null;
     for (const e of enemies) scene.remove(e.group);
     enemies.length = 0;
     clearLoot(); clearTracers();
@@ -1242,8 +1174,8 @@ export function createWorld(scene, hooks = {}) {
             const step = (e.speed * dt) / Math.max(1, moveMag);
             e.group.position.x += moveX * step;
             e.group.position.z += moveZ * step;
-            e.group.position.x = Math.min(AX + FH - 1.5, Math.max(AX - FH + 1.5, e.group.position.x));
-            e.group.position.z = Math.min(FH - 1.5, Math.max(-FH + 1.5, e.group.position.z));
+            e.group.position.x = Math.min(AX + SHW - 0.6, Math.max(AX - SHW + 0.6, e.group.position.x));
+            e.group.position.z = Math.min(RL - 1.5, Math.max(-RL + 1.5, e.group.position.z));
           }
           const movingNow = moveMag > 0.03 && e.stagger <= 0;
           // --- BODY FACING (anti foot-slide) ---------------------------------
@@ -1351,15 +1283,11 @@ export function createWorld(scene, hooks = {}) {
         tracers.splice(i, 1);
       }
     }
-    // wave flow: clear -> short break -> next (slightly bigger) wave
-    if (state.inArea && enemies.length > 0 && enemiesLeft() === 0 && nextWaveAt < 0) {
-      nextWaveAt = state.time + 4;
-      if (hooks.onWaveCleared) hooks.onWaveCleared(state.wave);
-    }
-    if (state.inArea && nextWaveAt > 0 && state.time >= nextWaveAt) {
-      nextWaveAt = -1;
-      state.wave += 1;
-      spawnWave(Math.min(6 + (state.wave - 1) * 2, 16));
+    // stage progression: as the player pushes forward (z decreasing), each
+    // stage triggers once at its threshold and spawns its squad ahead.
+    if (state.inArea && playerPos && state.stage < STAGES.length) {
+      const next = STAGES[state.stage];
+      if (playerPos.z <= next.triggerZ) startStage(state.stage);
     }
     // loot orbs: bob + spin, pick up when the player walks over them.
     for (let i = loot.length - 1; i >= 0; i -= 1) {
@@ -1399,6 +1327,6 @@ export function createWorld(scene, hooks = {}) {
   return {
     ROOM, colliders, solids, targets, interactables, state, enemies, loot, supplyCrates,
     damageTarget, damageEnemy, getHittables, update, spawnPlayerTracer, openSupplyCrate,
-    enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ,
+    enterArea1, extract, enemiesLeft, areaSpawn, baseSpawn, areaHalfX, areaHalfZ, extractPos,
   };
 }
