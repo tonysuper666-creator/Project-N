@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711005";
-import { createPlayer } from "./player.js?v=260711005";
-import { createWeapons } from "./weapons.js?v=260711005";
-import { createUI } from "./ui.js?v=260711005";
-import "./shell.js?v=260711005"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711005";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711005";
-import { audio } from "./audio.js?v=260711005";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711005";
-import { xpNeed } from "./account.js?v=260711005";
-import { createProfile } from "./profile.js?v=260711005";
+import { createWorld } from "./world.js?v=260711006";
+import { createPlayer } from "./player.js?v=260711006";
+import { createWeapons } from "./weapons.js?v=260711006";
+import { createUI } from "./ui.js?v=260711006";
+import "./shell.js?v=260711006"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711006";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711006";
+import { audio } from "./audio.js?v=260711006";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711006";
+import { xpNeed } from "./account.js?v=260711006";
+import { createProfile } from "./profile.js?v=260711006";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711005";
+const BUILD_VERSION = "260711006";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -830,4 +830,4 @@ function animate(now) {
 requestAnimationFrame(animate);
 
 // Handle for automated smoke tests (same spirit as __PN_SET_AK_SKIN__).
-window.__PN_DEBUG__ = { player, world, weapons, ui, account };
+window.__PN_DEBUG__ = { player, world, weapons, ui, account, camera, inputState };

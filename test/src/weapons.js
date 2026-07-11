@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711005";
-import { audio } from "./audio.js?v=260711005";
+import { createViewmodel } from "./viewmodel.js?v=260711006";
+import { audio } from "./audio.js?v=260711006";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -46,10 +46,11 @@ const SNIPER_DEF = {
   vm: "rifle", sound: "sniper", tracer: 0xfff2c0,
   scope: true, zoomFov: 28,
 };
-// Laser sniper (联狙): single instant high-damage energy bolt, scoped.
+// Laser sniper (联狙): scoped rapid semi — hold to fire a rhythmic 4 bolts/sec,
+// each an instant high-damage energy beam.
 const LASER_SNIPER_DEF = {
-  id: "lasersniper", name: "激光狙击枪", mode: "semi", damage: 130, fireRate: 0.9,
-  mag: 6, reserve: 36, reload: 2.2, range: 340, recoil: 0.09, kick: 0.03,
+  id: "lasersniper", name: "激光狙击枪", mode: "auto", damage: 95, fireRate: 0.25,
+  mag: 12, reserve: 72, reload: 2.2, range: 340, recoil: 0.05, kick: 0.02,
   vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
   scope: true, zoomFov: 32,
 };
@@ -215,8 +216,8 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (hooks.onHitmarker) hooks.onHitmarker(killed, "target");
       if (hooks.onDamageNumber) hooks.onDamageNumber(hit.point, damage, false);
     } else if (obj.userData && obj.userData.type === "enemy") {
-      const isHead = obj.userData.part === "head"; // headshots hit twice as hard
-      const applied = isHead ? damage * 2 : damage;
+      const isHead = obj.userData.part === "head"; // head/chest/limb multipliers
+      const applied = damage * (obj.userData.mult || 1);
       const ctrl = obj.userData.enemy;
       const killed = world.damageEnemy(ctrl, applied);
       if (hooks.onHitmarker) hooks.onHitmarker(killed, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
@@ -248,7 +249,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
       if (obj.userData && obj.userData.type === "enemy") {
         const isHead = obj.userData.part === "head";
         const ctrl = obj.userData.enemy;
-        const killed = world.damageEnemy(ctrl, isHead ? dmg * 2 : dmg);
+        const killed = world.damageEnemy(ctrl, dmg * (obj.userData.mult || 1));
         if (killed && hooks.onHitmarker) hooks.onHitmarker(true, "enemy", { headshot: isHead, heavy: !!ctrl.heavy, elite: !!ctrl.elite, boss: !!ctrl.boss });
       } else if (obj.userData && obj.userData.type === "target") {
         world.damageTarget(obj, dmg);

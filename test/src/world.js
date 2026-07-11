@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711005";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711005";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711006";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711006";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711005";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711005";
+import { audio } from "./audio.js?v=260711006";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711006";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -582,6 +582,36 @@ export function createWorld(scene, hooks = {}) {
   let waterMat = null;
   let sporesRef = null;
 
+  // --- stage gates: iron portcullises that seal the street until a stage's
+  // enemies are cleared, forcing a fight-your-way-forward flow ---------------
+  const gates = [];
+  const GATE_Z = [64, 12, -40, -84]; // one per non-boss stage
+  const GATE_H = 5.2;
+  function makeGate(z) {
+    const grp = new THREE.Group();
+    const barMat = new THREE.MeshStandardMaterial({ color: 0x2b3038, roughness: 0.45, metalness: 0.85 });
+    const frameMat = new THREE.MeshStandardMaterial({ color: 0x14171c, roughness: 0.6, metalness: 0.7 });
+    const top = new THREE.Mesh(new THREE.BoxGeometry(SHW * 2 + 1, 0.5, 0.6), frameMat); top.position.set(0, GATE_H, 0); grp.add(top);
+    for (const sx of [-1, 1]) { const post = new THREE.Mesh(new THREE.BoxGeometry(0.5, GATE_H + 1, 0.6), frameMat); post.position.set(sx * (SHW + 0.2), GATE_H / 2, 0); grp.add(post); }
+    for (let bx = -SHW + 0.7; bx <= SHW - 0.7; bx += 1.05) { const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, GATE_H, 8), barMat); bar.position.set(bx, GATE_H / 2, 0); bar.castShadow = true; grp.add(bar); }
+    for (const by of [1.3, 3.0, 4.4]) { const cb = new THREE.Mesh(new THREE.BoxGeometry(SHW * 2, 0.14, 0.16), barMat); cb.position.set(0, by, 0); grp.add(cb); }
+    grp.position.set(AX, 7, z); // start raised (open)
+    areaGroup.add(grp);
+    gates.push({ z, group: grp, box: null, closed: false });
+  }
+  function closeGate(i) {
+    const gt = gates[i]; if (!gt || gt.closed) return;
+    gt.closed = true;
+    gt.box = new THREE.Box3(new THREE.Vector3(AX - SHW, 0, gt.z - 0.4), new THREE.Vector3(AX + SHW, GATE_H + 1, gt.z + 0.4));
+    colliders.push(gt.box);
+  }
+  function openGate(i) {
+    const gt = gates[i]; if (!gt || !gt.closed) return;
+    gt.closed = false;
+    if (gt.box) { const idx = colliders.indexOf(gt.box); if (idx >= 0) colliders.splice(idx, 1); gt.box = null; }
+  }
+  function resetGates() { for (let i = 0; i < gates.length; i += 1) { openGate(i); gates[i].group.position.y = 7; } }
+
   (function buildLondon() {
     const L = RL;
     // shared materials (real CC0 photo textures)
@@ -750,6 +780,9 @@ export function createWorld(scene, hooks = {}) {
     makeSupplyCrate(-(SHW + 1.6), 54, "lc1");
     makeSupplyCrate(SHW + 1.6, -40, "lc2");
 
+    // stage gates spanning the street (open until each stage seals them)
+    for (const z of GATE_Z) makeGate(z);
+
     // extract pad at the near (spawn) end
     areaGroup.add(place(new THREE.Mesh(new THREE.RingGeometry(1.2, 1.6, 40), mint), AX, 0.16, RL - 8).rotateX(-Math.PI / 2));
     const exLabel = makeLabel("撤离点 [E]", "#8effb0"); exLabel.position.set(AX, 2.4, RL - 8); areaGroup.add(exLabel);
@@ -811,12 +844,13 @@ export function createWorld(scene, hooks = {}) {
 
   // Enemy tiers: colour-coded so elites read at a glance. dmgMul scales the
   // damage they deal; hpMul/scale set their toughness/size.
+  // Faster, melee-forward enemies for pressure. speed is higher across the board.
   const TIERS = {
-    grunt: { tint: null, emissive: null, hpMul: 1, dmgMul: 1, speed: 2.5, scale: 1 },
-    elite1: { tint: 0x4aa3ff, emissive: 0x123a6a, hpMul: 1.7, dmgMul: 1.3, speed: 2.8, scale: 1.12, name: "精英" },
-    elite2: { tint: 0xb06bff, emissive: 0x40206a, hpMul: 2.6, dmgMul: 1.6, speed: 2.4, scale: 1.22, name: "重装精英" },
-    heavy: { tint: 0xd06a5a, emissive: 0x902018, hpMul: 4, dmgMul: 1.8, speed: 1.6, scale: 1.45, name: "重型" },
-    boss: { tint: 0xffb020, emissive: 0x7a3a00, hpMul: 1, dmgMul: 2.4, speed: 1.7, scale: 2.4, name: "首领" },
+    grunt: { tint: null, emissive: null, hpMul: 1, dmgMul: 1, speed: 4.0, scale: 1 },
+    elite1: { tint: 0x4aa3ff, emissive: 0x123a6a, hpMul: 1.7, dmgMul: 1.3, speed: 4.6, scale: 1.12, name: "精英" },
+    elite2: { tint: 0xb06bff, emissive: 0x40206a, hpMul: 2.6, dmgMul: 1.6, speed: 4.0, scale: 1.22, name: "重装精英" },
+    heavy: { tint: 0xd06a5a, emissive: 0x902018, hpMul: 4, dmgMul: 1.8, speed: 2.8, scale: 1.45, name: "重型" },
+    boss: { tint: 0xffb020, emissive: 0x7a3a00, hpMul: 1, dmgMul: 2.4, speed: 3.0, scale: 2.4, name: "首领" },
   };
 
   // makeEnemy(x, z, opts) — x/z are relative to AX. opts: { hp, tier, dmgMul, boss, name }.
@@ -866,39 +900,49 @@ export function createWorld(scene, hooks = {}) {
       ctrl.walkPhase = Math.random() * 6;
     }
 
-    // simple invisible hitboxes (fast, reliable) — body + head (2x damage)
-    const bodyBox = new THREE.Mesh(new THREE.BoxGeometry(0.6 * scale, 1.15 * scale, 0.42 * scale), hitMat);
-    bodyBox.position.y = 1.0 * scale;
-    bodyBox.userData = { type: "enemy", enemy: ctrl, part: "body" };
-    g.add(bodyBox);
-    const headBox = new THREE.Mesh(new THREE.BoxGeometry(0.34 * scale, 0.36 * scale, 0.34 * scale), hitMat);
-    headBox.position.y = 1.66 * scale;
-    headBox.userData = { type: "enemy", enemy: ctrl, part: "head" };
-    g.add(headBox);
-    ctrl.bodies = [bodyBox, headBox];
-    ctrl.headBox = headBox;
+    // per-part invisible hitboxes with distinct damage multipliers:
+    // [w, h, d, y, x, part, mult]
+    const PARTS = [
+      [0.34, 0.36, 0.34, 1.66, 0, "head", 2.5], // head — highest
+      [0.6, 0.42, 0.42, 1.28, 0, "chest", 1.3], // chest — vitals
+      [0.56, 0.5, 0.4, 0.86, 0, "body", 1.0], // abdomen — baseline
+      [0.2, 0.7, 0.28, 1.24, 0.4, "arm", 0.7], // right arm
+      [0.2, 0.7, 0.28, 1.24, -0.4, "arm", 0.7], // left arm
+      [0.24, 0.9, 0.3, 0.45, 0.16, "leg", 0.65], // right leg
+      [0.24, 0.9, 0.3, 0.45, -0.16, "leg", 0.65], // left leg
+    ];
+    ctrl.bodies = [];
+    for (const [w, h, dp, y, x, part, mult] of PARTS) {
+      const box = new THREE.Mesh(new THREE.BoxGeometry(w * scale, h * scale, dp * scale), hitMat);
+      box.position.set(x * scale, y * scale, 0);
+      box.userData = { type: "enemy", enemy: ctrl, part, mult };
+      g.add(box);
+      ctrl.bodies.push(box);
+      if (part === "head") ctrl.headBox = box;
+    }
 
     scene.add(g);
     enemies.push(ctrl);
     return ctrl;
   }
 
-  const state = { score: 0, time: 0, inArea: false, wave: 0, stage: 0, boss: null };
+  const state = { score: 0, time: 0, inArea: false, wave: 0, stage: 0, boss: null, activeGate: -1 };
 
   // --- linear stage progression -------------------------------------------
   // Each stage triggers when the player advances past `triggerZ` (moving from
-  // +Z toward -Z). Enemies spawn AHEAD (more negative Z) so you push forward
-  // into them. Toughness + elite mix ramps up; the last stage is the boss.
+  // +Z toward -Z), spawns a squad AHEAD, and seals the street with `gate`
+  // (an index into the gate list). The gate opens only when the squad is
+  // cleared, so you must fight your way forward — no running to the boss.
   const STAGES = [
-    { triggerZ: RL - 30, name: "第 1 区 · 街口", sub: "肃清街口的散兵", zone: [55, 78],
+    { triggerZ: RL - 30, gate: 0, name: "第 1 区 · 街口", sub: "清空敌人后闸门开启", zone: [70, 90],
       squad: [{ tier: "grunt", hp: 55, n: 4 }] },
-    { triggerZ: 55, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [5, 34],
+    { triggerZ: 62, gate: 1, name: "第 2 区 · 商业街", sub: "敌人增援，出现精英", zone: [16, 56],
       squad: [{ tier: "grunt", hp: 75, n: 5 }, { tier: "elite1", hp: 150, n: 1 }] },
-    { triggerZ: 6, name: "第 3 区 · 广场", sub: "火力压制，蓝色精英", zone: [-34, -6],
+    { triggerZ: 10, gate: 2, name: "第 3 区 · 广场", sub: "火力压制，蓝色精英", zone: [-36, 4],
       squad: [{ tier: "grunt", hp: 110, n: 6 }, { tier: "elite1", hp: 180, n: 2 }] },
-    { triggerZ: -34, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-78, -50],
+    { triggerZ: -42, gate: 3, name: "第 4 区 · 议会前", sub: "重装精英把守", zone: [-80, -48],
       squad: [{ tier: "elite2", hp: 320, n: 3 }, { tier: "heavy", hp: 520, n: 1 }] },
-    { triggerZ: -80, name: "最终 · 大本钟", sub: "⚠ 最终首领现身", zone: [-108, -100], boss: true,
+    { triggerZ: -86, gate: -1, name: "最终 · 大本钟", sub: "⚠ 最终首领现身", zone: [-100, -92], boss: true,
       squad: [{ tier: "elite1", hp: 200, n: 2 }] },
   ];
 
@@ -924,6 +968,7 @@ export function createWorld(scene, hooks = {}) {
     } else {
       spawnSquad(st.squad, st.zone);
     }
+    if (st.gate >= 0) { closeGate(st.gate); state.activeGate = st.gate; } // seal the way forward
     if (hooks.onStage) hooks.onStage(st.name, st.sub);
   }
 
@@ -1059,6 +1104,8 @@ export function createWorld(scene, hooks = {}) {
     state.wave = 0;
     state.stage = 0;
     state.boss = null;
+    state.activeGate = -1;
+    resetGates();
     clearLoot(); clearTracers();
     // no enemies up front — stage 1 triggers as the player advances forward
   }
@@ -1140,21 +1187,14 @@ export function createWorld(scene, hooks = {}) {
           let moveX = 0;
           let moveZ = 0;
           if (e.stagger <= 0) {
-            if (dist > 9) { // weaving advance toward firing range (mostly forward)
-              const weave = Math.sin(state.time * 1.7 + e.strafePhase) * 0.28 * e.strafeDir;
+            if (dist > 1.9) { // RUSH the player to melee range (slight weave)
+              const weave = Math.sin(state.time * 1.9 + e.strafePhase) * (dist > 8 ? 0.22 : 0.1) * e.strafeDir;
               moveX = ux - uz * weave;
               moveZ = uz + ux * weave;
-            } else if (dist < 3.4) { // point-blank: hold ground, slow-circle (stay meleeable)
-              const weave = Math.sin(state.time * 1.5 + e.strafePhase) * e.strafeDir;
-              moveX = -uz * weave * 0.35;
-              moveZ = ux * weave * 0.35;
-            } else if (dist < 5.5) { // close: give a little ground, keep facing you
-              moveX = -ux * 0.4 - uz * 0.5 * e.strafeDir;
-              moveZ = -uz * 0.4 + ux * 0.5 * e.strafeDir;
-            } else { // hold range, strafe sideways
-              const weave = Math.sin(state.time * 1.2 + e.strafePhase) * e.strafeDir;
-              moveX = -uz * weave * 0.7;
-              moveZ = ux * weave * 0.7;
+            } else { // in melee range: hold + small sidestep, keep attacking
+              const weave = Math.sin(state.time * 2.2 + e.strafePhase) * e.strafeDir;
+              moveX = -uz * weave * 0.2;
+              moveZ = ux * weave * 0.2;
             }
           }
           // separation: never bunch into one blob
@@ -1218,22 +1258,31 @@ export function createWorld(scene, hooks = {}) {
               }
             }
           }
-          // engagement: only fire once the player is within weapon range.
-          // Distant enemies advance in silence instead of sniping across the map.
-          const ENGAGE_RANGE = e.heavy ? 24 : 20;
-          if (dist < ENGAGE_RANGE) {
-            if (!e.engaged) { // just spotted the player — small reaction delay
-              e.engaged = true;
-              e.nextShot = Math.max(e.nextShot, state.time + 0.5 + Math.random() * 0.6);
-            }
-            if (state.time >= e.nextShot && e.stagger <= 0) {
-              e.nextShot = state.time + (e.heavy ? 2.1 : 1.7) + Math.random() * 0.9;
-              enemyFire(e, playerState, dist);
-              e.flashT = 0.07;
-              if (e.flashMesh) e.flashMesh.visible = true;
+          // MELEE-primary engagement: in your face they slash on a fast timer;
+          // at mid range they only occasionally take a pot-shot (secondary).
+          const MELEE_RANGE = e.boss ? 3.2 : 2.2;
+          if (dist < MELEE_RANGE && e.stagger <= 0) {
+            if (state.time >= (e.nextMelee || 0)) {
+              e.nextMelee = state.time + (e.boss ? 1.0 : 0.85) + Math.random() * 0.3;
+              const md = Math.round((e.boss ? 22 : 9 + Math.random() * 6) * (e.dmgMul || 1));
+              if (hooks.onPlayerHit) hooks.onPlayerHit(md);
+              audio.enemyShot();
+              if (e.character && e.character.flash) e.character.flash(); // lunge flash
             }
           } else {
-            e.engaged = false; // lost range: hold fire again
+            // ranged is now secondary: only some enemies, at mid range, slowly
+            const ENGAGE_RANGE = e.heavy ? 22 : 16;
+            if (dist < ENGAGE_RANGE && dist > MELEE_RANGE) {
+              if (!e.engaged) { e.engaged = true; e.nextShot = Math.max(e.nextShot, state.time + 0.6 + Math.random() * 0.8); }
+              if (state.time >= e.nextShot && e.stagger <= 0) {
+                e.nextShot = state.time + (e.heavy ? 2.6 : 2.2) + Math.random() * 1.4;
+                enemyFire(e, playerState, dist);
+                e.flashT = 0.07;
+                if (e.flashMesh) e.flashMesh.visible = true;
+              }
+            } else {
+              e.engaged = false;
+            }
           }
           if (e.flashT > 0) {
             e.flashT -= dt;
@@ -1288,6 +1337,19 @@ export function createWorld(scene, hooks = {}) {
     if (state.inArea && playerPos && state.stage < STAGES.length) {
       const next = STAGES[state.stage];
       if (playerPos.z <= next.triggerZ) startStage(state.stage);
+    }
+    // gate flow: a sealed gate opens the moment its stage's squad is cleared
+    if (state.inArea) {
+      if (state.activeGate >= 0 && gates[state.activeGate] && gates[state.activeGate].closed && enemiesLeft() === 0) {
+        openGate(state.activeGate);
+        state.activeGate = -1;
+        if (hooks.onStage) hooks.onStage("闸门开启", "继续向前推进");
+      }
+      // smoothly raise open gates up out of the way / drop closed ones to block
+      for (const gt of gates) {
+        const ty = gt.closed ? 0 : 7;
+        if (Math.abs(gt.group.position.y - ty) > 0.01) gt.group.position.y += (ty - gt.group.position.y) * Math.min(1, dt * 3);
+      }
     }
     // loot orbs: bob + spin, pick up when the player walks over them.
     for (let i = loot.length - 1; i >= 0; i -= 1) {

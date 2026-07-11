@@ -201,27 +201,45 @@ export const audio = {
     o.connect(og).connect(master()); o.start(t); o.stop(t + 0.13);
   },
 
-  // Continuous laser hum: on(true) starts a steady looping tone, on(false)
-  // fades it out. Used by the beam weapon while the trigger is held.
+  // Continuous laser: on(true) loops a synthesized "firing" texture (a warbling
+  // pulse loop — softer, not a piercing static tone), on(false) fades it out.
   _beam: null,
+  _beamBuf: null,
+  _laserLoopBuffer(c) {
+    if (this._beamBuf) return this._beamBuf;
+    const dur = 0.5, n = Math.floor(c.sampleRate * dur);
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i += 1) {
+      const t = i / c.sampleRate;
+      // warbling carrier + sub octave, pulsed by a fast tremolo → "beam firing"
+      const warp = 360 + 120 * Math.sin(2 * Math.PI * 6 * t);
+      const carrier = Math.sin(2 * Math.PI * warp * t) + 0.5 * Math.sin(2 * Math.PI * warp * 0.5 * t);
+      const trem = 0.55 + 0.45 * Math.sin(2 * Math.PI * 14 * t); // pulsing amplitude
+      d[i] = carrier * trem * 0.5;
+    }
+    // taper the ends so the loop point is seamless
+    const fade = Math.floor(c.sampleRate * 0.01);
+    for (let i = 0; i < fade; i += 1) { const k = i / fade; d[i] *= k; d[n - 1 - i] *= k; }
+    this._beamBuf = buf;
+    return buf;
+  },
   laserBeam(on) {
     const c = ac(); if (!c) return;
     if (on) {
       if (this._beam) return;
-      const o = c.createOscillator(); o.type = "sawtooth"; o.frequency.value = 320;
-      const o2 = c.createOscillator(); o2.type = "square"; o2.frequency.value = 640;
-      const src = c.createBufferSource(); src.buffer = noise(c, 1.0); src.loop = true;
-      const f = c.createBiquadFilter(); f.type = "bandpass"; f.frequency.value = 1800; f.Q.value = 2;
+      const src = c.createBufferSource(); src.buffer = this._laserLoopBuffer(c); src.loop = true;
+      const f = c.createBiquadFilter(); f.type = "lowpass"; f.frequency.value = 1600; f.Q.value = 0.7; // tame the harshness
       const g = c.createGain(); g.gain.setValueAtTime(0.0001, c.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.11, c.currentTime + 0.03);
-      o.connect(g); o2.connect(g); src.connect(f).connect(g); g.connect(master());
-      o.start(); o2.start(); src.start();
-      this._beam = { o, o2, src, g };
+      g.gain.exponentialRampToValueAtTime(0.07, c.currentTime + 0.04);
+      src.connect(f).connect(g).connect(master());
+      src.start();
+      this._beam = { src, g };
     } else if (this._beam) {
       const b = this._beam; this._beam = null;
       const now = c.currentTime;
-      try { b.g.gain.cancelScheduledValues(now); b.g.gain.setValueAtTime(b.g.gain.value, now); b.g.gain.exponentialRampToValueAtTime(0.0001, now + 0.05); } catch (_) {}
-      setTimeout(() => { for (const n of [b.o, b.o2, b.src]) { try { n.stop(); } catch (_) {} } }, 80);
+      try { b.g.gain.cancelScheduledValues(now); b.g.gain.setValueAtTime(b.g.gain.value, now); b.g.gain.exponentialRampToValueAtTime(0.0001, now + 0.06); } catch (_) {}
+      setTimeout(() => { try { b.src.stop(); } catch (_) {} }, 100);
     }
   },
 

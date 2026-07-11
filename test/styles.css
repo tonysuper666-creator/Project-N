@@ -1079,16 +1079,25 @@ body.playing #minimap { display: inline-block; }
   box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.92), inset 0 0 0 2px rgba(0,0,0,0.9), inset 0 0 40px 14px rgba(0,0,0,0.75);
   border: 2px solid rgba(150, 210, 160, 0.5);
 }
+/* fine crosshair lines with a subtle light outline so they read on any bg */
 #scopeOverlay .scope-line {
-  position: absolute; top: 50%; left: 50%; background: rgba(20, 30, 22, 0.9);
+  position: absolute; top: 50%; left: 50%; background: rgba(0, 0, 0, 0.85);
+  box-shadow: 0 0 0 0.5px rgba(230, 255, 235, 0.5);
 }
-#scopeOverlay .scope-line.sv { width: 1px; height: 78vh; transform: translate(-50%, -50%); }
-#scopeOverlay .scope-line.sh { width: 78vh; height: 1px; transform: translate(-50%, -50%); }
-#scopeOverlay .scope-tick { position: absolute; top: 50%; left: 50%; background: rgba(20,30,22,0.9); }
-#scopeOverlay .scope-tick.tup { width: 2px; height: 10vh; transform: translate(-50%, -160%); }
-#scopeOverlay .scope-tick.tdn { width: 2px; height: 10vh; transform: translate(-50%, 60%); }
-#scopeOverlay .scope-tick.tlf { width: 10vh; height: 2px; transform: translate(-160%, -50%); }
-#scopeOverlay .scope-tick.trt { width: 10vh; height: 2px; transform: translate(60%, -50%); }
+#scopeOverlay .scope-line.sv { width: 2px; height: 78vh; transform: translate(-50%, -50%); }
+#scopeOverlay .scope-line.sh { width: 78vh; height: 2px; transform: translate(-50%, -50%); }
+/* mil-dot ticks (thicker duplex posts near the edges) */
+#scopeOverlay .scope-tick { position: absolute; top: 50%; left: 50%; background: rgba(0,0,0,0.9); box-shadow: 0 0 0 0.5px rgba(230,255,235,0.45); }
+#scopeOverlay .scope-tick.tup { width: 4px; height: 12vh; transform: translate(-50%, -180%); }
+#scopeOverlay .scope-tick.tdn { width: 4px; height: 12vh; transform: translate(-50%, 80%); }
+#scopeOverlay .scope-tick.tlf { width: 12vh; height: 4px; transform: translate(-180%, -50%); }
+#scopeOverlay .scope-tick.trt { width: 12vh; height: 4px; transform: translate(80%, -50%); }
+/* bright central aim dot — the actual point of impact */
+#scopeOverlay .scope-dot {
+  position: absolute; top: 50%; left: 50%; width: 7px; height: 7px; border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: #ff3b3b; box-shadow: 0 0 6px 1px rgba(255, 60, 60, 0.9), 0 0 0 1.5px rgba(0,0,0,0.6);
+}
 
 /* ===== Boss health bar (top center) ===== */
 #bossBar {

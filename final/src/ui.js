@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711005";
-import { ITEM_DB } from "./inventory.js?v=260711005";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711005";
-import { audio } from "./audio.js?v=260711005";
+import { account } from "./account.js?v=260711006";
+import { ITEM_DB } from "./inventory.js?v=260711006";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711006";
+import { audio } from "./audio.js?v=260711006";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
