@@ -1,4 +1,4 @@
-import { account } from "./account.js?v=260711003";
+import { account } from "./account.js?v=260711004";
 
 // Mission definitions + per-account progress. Accepted missions live in the
 // account data as `missions[id] = { progress, done, claimed }`; unaccepted

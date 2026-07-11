@@ -4,22 +4,22 @@ import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { SMAAPass } from "three/addons/postprocessing/SMAAPass.js";
-import { createWorld } from "./world.js?v=260711003";
-import { createPlayer } from "./player.js?v=260711003";
-import { createWeapons } from "./weapons.js?v=260711003";
-import { createUI } from "./ui.js?v=260711003";
-import "./shell.js?v=260711003"; // boot logo + login + lobby + backpack (front-end shell)
-import { account } from "./account.js?v=260711003";
-import { renderInventory, ITEM_DB } from "./inventory.js?v=260711003";
-import { audio } from "./audio.js?v=260711003";
-import { recordProgress, trackedMissions } from "./missions.js?v=260711003";
-import { xpNeed } from "./account.js?v=260711003";
-import { createProfile } from "./profile.js?v=260711003";
+import { createWorld } from "./world.js?v=260711004";
+import { createPlayer } from "./player.js?v=260711004";
+import { createWeapons } from "./weapons.js?v=260711004";
+import { createUI } from "./ui.js?v=260711004";
+import "./shell.js?v=260711004"; // boot logo + login + lobby + backpack (front-end shell)
+import { account } from "./account.js?v=260711004";
+import { renderInventory, ITEM_DB } from "./inventory.js?v=260711004";
+import { audio } from "./audio.js?v=260711004";
+import { recordProgress, trackedMissions } from "./missions.js?v=260711004";
+import { xpNeed } from "./account.js?v=260711004";
+import { createProfile } from "./profile.js?v=260711004";
 
 // Human-readable build version: YYMMDD + 3-digit deploy count for that day
 // (e.g. 260611001 = 2026-06-11, 1st deploy). Bumped by hand each deploy so a
 // refresh visibly confirms whether the new build is live.
-const BUILD_VERSION = "260711003";
+const BUILD_VERSION = "260711004";
 (() => {
   const el = document.getElementById("buildVer");
   if (el) el.textContent = `v${BUILD_VERSION}`;
@@ -254,6 +254,7 @@ const ui = createUI({
   },
   onBuyAmmo: (ammo) => weapons.addReserve(ammo.id, ammo.qty),
   onMissionsChanged: () => refreshMissionHUD(),
+  onLoadoutChanged: () => syncLoadout(), // vendor purchase changed equipped weapon
 });
 
 // --- Profile page (3D character + stats) ----------------------------------

@@ -8,7 +8,7 @@ import { clone as skeletonClone } from "three/addons/utils/SkeletonUtils.js";
 // "Soldier" (Mixamo "vanguard") model — see docs/CREDITS.md for attribution;
 // swap the file for a CC0 model later without touching this code.
 
-const MODEL_URL = "./assets/models/Soldier.glb?v=260711003";
+const MODEL_URL = "./assets/models/Soldier.glb?v=260711004";
 const TARGET_HEIGHT = 1.85; // metres — sized so a bodyshot lands centre-mass
 
 // --- COD-style tactical gear, bolted onto the rigged skeleton ---------------

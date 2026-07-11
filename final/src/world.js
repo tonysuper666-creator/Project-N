@@ -1,9 +1,9 @@
 import * as THREE from "three";
-import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711003";
-import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711003";
+import { techPanel, techFloor, hazardStripes, brushedMetal, holoScreen } from "./textures.js?v=260711004";
+import { rollLoot, ITEM_DB, RARITY_COLOR } from "./inventory.js?v=260711004";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { audio } from "./audio.js?v=260711003";
-import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711003";
+import { audio } from "./audio.js?v=260711004";
+import { loadCharacter, makeCharacter, characterReady } from "./character.js?v=260711004";
 
 // Futuristic command-hub base. Uses beveled extruded panels, polygonal
 // columns, a lathed dome, trusses, light coves and energy conduits instead
@@ -1212,9 +1212,13 @@ export function createWorld(scene, hooks = {}) {
               const weave = Math.sin(state.time * 1.7 + e.strafePhase) * 0.28 * e.strafeDir;
               moveX = ux - uz * weave;
               moveZ = uz + ux * weave;
-            } else if (dist < 5.5) { // too close: back off at an angle
-              moveX = -ux * 0.7 - uz * 0.4 * e.strafeDir;
-              moveZ = -uz * 0.7 + ux * 0.4 * e.strafeDir;
+            } else if (dist < 3.4) { // point-blank: hold ground, slow-circle (stay meleeable)
+              const weave = Math.sin(state.time * 1.5 + e.strafePhase) * e.strafeDir;
+              moveX = -uz * weave * 0.35;
+              moveZ = ux * weave * 0.35;
+            } else if (dist < 5.5) { // close: give a little ground, keep facing you
+              moveX = -ux * 0.4 - uz * 0.5 * e.strafeDir;
+              moveZ = -uz * 0.4 + ux * 0.5 * e.strafeDir;
             } else { // hold range, strafe sideways
               const weave = Math.sin(state.time * 1.2 + e.strafePhase) * e.strafeDir;
               moveX = -uz * weave * 0.7;
@@ -1245,10 +1249,12 @@ export function createWorld(scene, hooks = {}) {
           // --- BODY FACING (anti foot-slide) ---------------------------------
           // The legs only have a forward walk/run cycle. If the body faced the
           // player while travelling sideways the feet would skate. So while
-          // moving we turn the body toward the actual travel direction; when
-          // holding still we swing back to face the player (to aim/fire). The
+          // advancing/strafing at range we turn the body toward the actual
+          // travel direction. But when the player is CLOSE we always face them
+          // (so they never turn tail and can still be knifed / aim at you). The
           // turn is eased so it never snaps.
-          const targetYaw = movingNow
+          const closeUp = dist < 6;
+          const targetYaw = (movingNow && !closeUp)
             ? Math.atan2(e.group.position.x - prevX, e.group.position.z - prevZ)
             : facePlayerYaw;
           let dyaw = targetYaw - e.group.rotation.y;

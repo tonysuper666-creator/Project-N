@@ -1,7 +1,7 @@
-import { account } from "./account.js?v=260711003";
-import { ITEM_DB } from "./inventory.js?v=260711003";
-import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711003";
-import { audio } from "./audio.js?v=260711003";
+import { account } from "./account.js?v=260711004";
+import { ITEM_DB } from "./inventory.js?v=260711004";
+import { MISSIONS, missionState, acceptMission, claimMission } from "./missions.js?v=260711004";
+import { audio } from "./audio.js?v=260711004";
 
 // DOM-based menus for the base: vendor (armory), missions, and the deploy
 // (area select) door. Opening a panel frees the mouse; closing re-locks the
@@ -15,6 +15,16 @@ const VENDOR_ITEMS = [
 
 // Exchange materials for the gold AK skin.
 const GOLD_AK_COST = [{ id: "scrap", qty: 8 }, { id: "data_chip", qty: 3 }];
+
+// Craftable primaries: hand over materials, get the weapon (auto-equipped).
+const WEAPON_EXCHANGES = [
+  { id: "laser_rifle", tag: "史诗", tagCls: "diff-普通",
+    cost: [{ id: "alloy_core", qty: 2 }, { id: "data_chip", qty: 4 }],
+    desc: "定向能量武器，扣下扳机即持续不间断输出，弹道笔直、后坐极低。" },
+  { id: "minigun", tag: "传说", tagCls: "diff-高危",
+    cost: [{ id: "alloy_core", qty: 4 }, { id: "scrap", qty: 12 }, { id: "data_chip", qty: 3 }],
+    desc: "重型转膛机枪，持续开火逐渐提高转速与射速，单弹夹 100 发，换弹缓慢。" },
+];
 
 const AREAS = [
   { id: "area1", name: "AREA 1 · 密林前哨", diff: "普通", reqLevel: 1,
@@ -111,6 +121,34 @@ export function createUI(hooks = {}) {
       toast("已兑换：黄金 AK-47 ✦");
     });
     body.appendChild(row);
+
+    // --- craftable weapons (materials) ---
+    for (const wx of WEAPON_EXCHANGES) {
+      const def = ITEM_DB[wx.id];
+      const has = data && data.inventory.find((x) => x.id === wx.id);
+      const wr = document.createElement("div");
+      wr.className = "listRow tall";
+      wr.innerHTML = `<div class="rowText"><span class="rowName">${def.name} <em class="diff ${wx.tagCls}">${wx.tag}</em></span>
+        <span class="rowDesc">${wx.desc} 材料：${costText(wx.cost)}</span></div>
+        <button class="rowBtn deploy">${has ? "已拥有 · 装备" : "兑换"}</button>`;
+      const wbtn = wr.querySelector(".rowBtn");
+      wbtn.addEventListener("click", () => {
+        const d = account.getData();
+        const owned = d.inventory.find((x) => x.id === wx.id);
+        if (!owned) {
+          if (!canAfford(wx.cost)) { toast("材料不足"); return; }
+          for (const c of wx.cost) account.take(c.id, c.qty);
+        }
+        const d2 = account.getData();
+        if (!d2.inventory.find((x) => x.id === wx.id)) d2.inventory.push({ id: wx.id, qty: 1 });
+        d2.equipment.primary = wx.id; // equip as the primary
+        account.save(d2);
+        if (hooks.onLoadoutChanged) hooks.onLoadoutChanged(); // swap the live weapon
+        wbtn.textContent = "已拥有 · 装备";
+        toast(`已装备：${def.name}`);
+      });
+      body.appendChild(wr);
+    }
 
     // --- consumables (coins) ---
     for (const item of VENDOR_ITEMS) {

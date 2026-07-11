@@ -1,6 +1,6 @@
 import * as THREE from "three";
-import { createViewmodel } from "./viewmodel.js?v=260711003";
-import { audio } from "./audio.js?v=260711003";
+import { createViewmodel } from "./viewmodel.js?v=260711004";
+import { audio } from "./audio.js?v=260711004";
 
 // Weapon definitions. mode drives trigger behaviour:
 //   auto  -> fires continuously while held
@@ -21,15 +21,20 @@ const SMG_DEF = {
   mag: 35, reserve: 175, reload: 1.2, range: 100, recoil: 0.035, kick: 0.008,
   vm: "rifle", sound: "smg",
 };
+// Laser: a continuous energy stream — a very short cycle so holding fire reads
+// as one uninterrupted beam. Low per-tick damage keeps the sustained DPS sane.
 const LASER_DEF = {
-  id: "laser", name: "激光步枪", mode: "auto", damage: 13, fireRate: 1 / 12,
-  mag: 45, reserve: 225, reload: 1.3, range: 160, recoil: 0.02, kick: 0.005,
+  id: "laser", name: "激光步枪", mode: "auto", damage: 5, fireRate: 0.04,
+  mag: 100, reserve: 300, reload: 1.3, range: 160, recoil: 0.006, kick: 0.001,
   vm: "rifle", sound: "laser", tracer: 0x66e0ff, beam: true,
 };
+// Gatling: spins up while the trigger is held — the barrel cadence climbs from
+// `fireRate` (spun-down) toward `spinFast` (spun-up). 100-round belt, slow reload.
 const MINIGUN_DEF = {
-  id: "minigun", name: "加特林", mode: "auto", damage: 8, fireRate: 1 / 20,
-  mag: 120, reserve: 480, reload: 3.6, range: 120, recoil: 0.03, kick: 0.006,
+  id: "minigun", name: "加特林", mode: "auto", damage: 8, fireRate: 0.14,
+  mag: 100, reserve: 400, reload: 3.6, range: 120, recoil: 0.03, kick: 0.006,
   vm: "rifle", sound: "minigun", tracer: 0xffb060,
+  spinup: true, spinFast: 0.045, spinUp: 0.9, spinDown: 0.7,
 };
 const PRIMARY_DEFS = { smg_proto: SMG_DEF, laser_rifle: LASER_DEF, minigun: MINIGUN_DEF };
 
@@ -84,6 +89,7 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     bloom: 0, // sustained-fire spread build-up (0..1)
     burst: 0, // shots in the current burst (drives horizontal drift)
     kickAccum: 0, // accumulated camera kick, partially recovered after firing
+    spin: 0, // gatling spin-up state (0 = spun down, 1 = full RPM)
   }));
 
   // Current cone spread in radians: baseline + bloom + movement penalties.
@@ -190,9 +196,15 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
     }, w.reloadDur * 1000);
   }
 
+  // Effective shot interval: gatling shortens it as the barrel spins up.
+  function shotInterval(w) {
+    if (w.def.spinup) return w.def.fireRate + (w.def.spinFast - w.def.fireRate) * w.spin;
+    return w.def.fireRate;
+  }
+
   function fireRanged(time) {
     const w = current;
-    if (w.reloading || time - w.lastShot < w.def.fireRate) return;
+    if (w.reloading || time - w.lastShot < shotInterval(w)) return;
     if (w.ammo <= 0) {
       reload();
       return;
@@ -342,6 +354,14 @@ export function createWeapons(camera, scene, world, player, hooks = {}, viewCame
         player.addPitch(-rec * 0.55);
         w.kickAccum -= rec;
       }
+    }
+    // gatling spin: climbs while the trigger's held with ammo, winds back down
+    // otherwise. Drives the shot cadence via shotInterval().
+    for (const wp of weapons) {
+      if (!wp.def.spinup) continue;
+      const spinning = wp === current && wp.firing && !wp.reloading && wp.ammo > 0 && equipPhase === "idle";
+      if (spinning) wp.spin = Math.min(1, wp.spin + dt / wp.def.spinUp);
+      else wp.spin = Math.max(0, wp.spin - dt / wp.def.spinDown);
     }
     if (muzzle.intensity > 0) muzzle.intensity = Math.max(0, muzzle.intensity - dt * 40);
 
